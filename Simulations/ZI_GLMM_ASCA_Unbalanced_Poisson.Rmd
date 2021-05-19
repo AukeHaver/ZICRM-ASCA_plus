@@ -1,0 +1,532 @@
+---
+title: "Zero-inflated GLMM ASCA (Poisson) Simulation"
+author: "Auke Haver"
+date: "19/05/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r packages and functions,echo=FALSE, warning=FALSE}
+source("../R/PEM-SCA_supplementary_functions.R",local=TRUE)
+```
+
+# Introduction
+In this simulation, we will apply the ASCA framework on unbalanced, zero-inflated, Poisson-distributed data. Furthermore, we will consider repeated measurements on unbalanced groups. This will require the use of Generalized Linear Mixed Models for estimating effect matrices, which can be decomposed into scores and loadings through Singular Value Decomposition. We will utilize a Jack-knife approach for validation of our method. 
+
+```{r Simulation Design}
+# design size
+design_info <- gen_sim_info(n_treatments = 5,
+                            n_timepoints = 3,
+                            timepoints = c("0","6","12") %>% 
+                              factor(x=.,levels=.),
+                            treatments = c("1","2","3","4","5") %>% 
+                              factor(x=.,levels=.),
+                            n_PC = 2 ,
+                            n_variables = 16,
+                            n_subjects = 208,
+                            n_dummy_replicates = 60,
+                            family = "zipois",
+                            prob_zero = 0.5,
+                            jackknife_fold = 10) # Which type of family do we want to simulate
+
+# Generate Design
+design_matrix <- gen_sim_design(design_info)
+
+
+# Fixed effect model matrix
+X <- simulate_fixed_param_matrix(levels=c(design_info$n_timepoints,design_info$n_treatments),
+                                 effects=c("A","AB"),
+                                 replicates = design_info$n_dummy_replicates) %>%
+  # START INTEGRATE INTO FUNCTION
+  as_tibble(.name_repair)%>%
+  setNames(c("mean",
+             paste0("timepoint",
+                           seq(1:2)),
+             paste0("timepoint",
+                    rep(seq(1:design_info$n_timepoints),each=design_info$n_treatments-1),
+                    ":treatment",
+                    rep(seq(1:(design_info$n_treatments-1)),design_info$n_timepoints)))) %>%
+  relocate(c("mean",
+           paste0("timepoint",
+                           seq(1:2)),
+           paste0("timepoint",
+                    rep(seq(1:design_info$n_timepoints),design_info$n_treatments-1),
+                    ":treatment",
+                    rep(seq(1:(design_info$n_treatments-1)),each=design_info$n_timepoints)))) %>%
+  as.matrix()
+  # END INTEGRATE INTO FUNCTION
+
+# Random effect model matrix
+Z <- contr.sum((design_info$n_treatments*design_info$n_dummy_replicates)+1)[1:(design_info$n_treatments*design_info$n_dummy_replicates),] %>%
+  apply(FUN=function(x)rep(x,design_info$n_timepoints),MARGIN=2)
+
+```
+
+# Scores and Loadings
+Having decided the design of the simulation, we will continue with setting the scores ($T$) and loadings ($P$) for the time ($\alpha$) and time-treatment interaction ($\alpha\beta$) effects, in order to create effect matrices. Whereas scores only need to be orthogonal within one effect matrix, all loadings are required to be orthonormal.
+
+```{r Simulate scores and loadings}
+# SCORES
+## Time Effect
+Ta <- c(-4,   0, 4,
+        1,-2,1) %>%
+  rep(each = design_info$n_treatments*design_info$n_dummy_replicates) %>% 
+  matrix(ncol=2) 
+## Time:Treatment Interaction Effect
+Tab<-c(0,.02,-.01,-.02, 0.1,         3,1, -.5,-1.5,-2,      4,-.5,-1,-1.5,-1,
+       0.305,-.05,-.15,-.05,-.15,  .03,0,.04,.02,.02,      -0.005,.03, -0.03 ,.01,-0.02)%>%
+  rep(each = design_info$n_dummy_replicates)%>% 
+  matrix(ncol=design_info$n_PC) 
+
+# LOADINGS
+# Time Effect
+Pa <- cbind(
+  unit_vector(
+    c(-1,-1,-1,2,0,0,0,0,1,1,-2,1,0,0,0,0)),
+  unit_vector(
+    c(-2,2,-2,-1,0,0,0,0,1,-1,1,2,0,0,0,0)))
+# Time:Treatment Interaction Effect
+Pab <- cbind(
+  unit_vector(
+    c(0,0,0,0,-1,1,2,1,-2,-1,-1,1,0,0,0,0)),
+  unit_vector(
+    c(0,0,0,0,-2,1,-1,-1,-1,2,1,1,0,0,0,0)))
+
+
+# Explained variance per component
+expl_var_a <-  perform_pca(Ta %*% t(Pa))$singular_values %>% 
+  expl_var_from_svd()
+expl_var_ab<-  perform_pca(Tab%*%t(Pab))$singular_values %>% 
+  expl_var_from_svd()
+  
+
+```
+
+```{r}
+# Time EFFECT 
+ggarrange(
+  tibble(PC = seq(1:2),
+         expl=expl_var_a[1:2])%>%
+  ggplot(aes(x=factor(PC),
+             y=expl))+
+  geom_bar(stat="identity")+
+  theme_classic()+
+  theme(aspect.ratio = 3)+
+  labs(y="Percentage Explained",
+       x="Principal Component"),
+  ggarrange(
+  # Scores PC1
+  design_matrix %>% 
+    mutate(score = Ta[,1])%>%
+    ggplot(aes(x=timepoint,
+               y=score))+
+    geom_point()+
+    theme_classic()+
+    labs(x="Timepoint",
+         y="Score",
+         title="PC1")+
+    theme(plot.title = element_text(hjust=.5),
+        aspect.ratio = 1),
+  # Loadings PC1
+  tibble(var = LETTERS[1:nrow(Pa)],
+         loading = Pa[,1])%>%
+  ggplot(aes(x=var,
+             y=loading))+
+  geom_bar(stat="identity",
+           fill = c(rep(dark_purple,4),rep(teal,4),rep(dark_purple,4),rep(teal,4)))+
+  geom_point()+
+  theme_classic()+
+  labs(x = "Variable",
+       y = "Loading",
+       title = "PC1")+
+  theme(plot.title=element_text(hjust=.5),
+        aspect.ratio = 1),
+  # Scores PC2
+  design_matrix %>% 
+    mutate(score = Ta[,2])%>%
+    ggplot(aes(x=timepoint,
+               y=score))+
+    geom_point()+
+    theme_classic()+
+    labs(x="Timepoint",
+         y="Score",
+         title="PC1")+
+    theme(plot.title = element_text(hjust=.5),
+        aspect.ratio = 1),
+  # Loadings PC2
+  tibble(var = LETTERS[1:nrow(Pa)],
+         loading = Pa[,2])%>%
+  ggplot(aes(x=var,
+             y=loading))+
+  geom_bar(stat="identity",
+           fill = c(rep(dark_purple,4),rep(teal,4),rep(dark_purple,4),rep(teal,4)))+
+  geom_point()+
+  theme_classic()+
+  labs(x = "Variable",
+       y = "Loading",
+       title = "PC1")+
+  theme(plot.title=element_text(hjust=.5),
+        aspect.ratio = 1),
+  # Plot settings
+  ncol=2,
+  nrow=2,
+  align="hv"),
+  widths=c(2,5)) %>%
+  annotate_figure(top=text_grob("Time Effect",
+                                size=18)) %>%
+  ggsave(filename="05-05-2021_ZIGM_ASCA_Time_Before.png",
+         plot=.,
+         width = 8,
+         height= 6)
+
+# Time-Treatment Interaction
+ggarrange(
+  tibble(PC = seq(1:2),
+         expl=expl_var_ab[1:2])%>%
+  ggplot(aes(x=factor(PC),
+             y=expl))+
+  geom_bar(stat="identity")+
+  theme_classic()+
+  theme(aspect.ratio = 3)+
+  labs(y="Percentage Explained",
+       x="Principal Component"),
+  ggarrange(
+  # Scores PC1
+  design_matrix %>% 
+    mutate(score = Tab[,1])%>%
+    ggplot(aes(x=timepoint,
+               y=score,
+               color=treatment))+
+    geom_point()+
+    geom_line(aes(group=treatment))+
+    theme_classic()+
+    labs(x="Timepoint",
+         y="Score",
+         title="PC1")+
+    theme(plot.title = element_text(hjust=.5),
+        aspect.ratio = 1)+
+    scale_color_viridis_d(),
+  # Loadings PC1
+  tibble(var = LETTERS[1:nrow(Pab)],
+         loading = Pab[,1])%>%
+  ggplot(aes(x=var,
+             y=loading))+
+  geom_bar(stat="identity",
+           fill = c(rep(teal,4),rep(dark_purple,8),rep(teal,4)))+
+  geom_point()+
+  theme_classic()+
+  labs(x = "Variable",
+       y = "Loading",
+       title = "PC1")+
+  theme(plot.title=element_text(hjust=.5),
+        aspect.ratio = 1),
+  # Scores PC2
+  design_matrix %>% 
+    mutate(score = Tab[,2])%>%
+    ggplot(aes(x=timepoint,
+               y=score,
+               color=treatment))+
+    geom_line(aes(group=treatment))+
+    geom_point()+
+    theme_classic()+
+    labs(x="Timepoint",
+         y="Score",
+         title="PC1")+
+    theme(plot.title = element_text(hjust=.5),
+        aspect.ratio = 1)+
+    scale_color_viridis_d(),
+  # Loadings PC2
+  tibble(var = LETTERS[1:nrow(Pab)],
+         loading = Pab[,2])%>%
+  ggplot(aes(x=var,
+             y=loading))+
+  geom_bar(stat="identity",
+           fill = c(rep(teal,4),rep(dark_purple,8),rep(teal,4)))+
+  geom_point()+
+  theme_classic()+
+  labs(x = "Variable",
+       y = "Loading",
+       title = "PC1")+
+  theme(plot.title=element_text(hjust=.5),
+        aspect.ratio = 1),
+  # Plot settings
+  ncol=2,
+  nrow=2,
+  align="hv",
+  common.legend = TRUE),
+  widths=c(2,5)) %>%
+  annotate_figure(top=text_grob("Time:Treatment Effect",
+                                size=18)) %>%
+  ggsave(filename="05-05-2021_ZIGM_ASCA_Interaction_before.png",
+         plot=.,
+         width = 8,
+         height= 6)
+```
+
+
+
+## Compose Matrices and unbalance dataset
+```{r Compose Matrices and Unbalance}
+# Compose (Effect) Matrices
+balanced_simulation_matrices <- compose_matrices(design_info,
+                                        function_seed=1,
+                                        mu=5,
+                                        effects = c("time","interaction"),
+                                        scores_time = Ta,
+                                        scores_interaction = Tab,
+                                        loadings_time = Pa,
+                                        loadings_interaction = Pab,
+                                        include_subject = TRUE,
+                                        subject_mu = 0,
+                                        subject_Sigma = .05)
+
+# Sample from distribution with certain mean
+balanced_response_matrix <- 
+  generate_response_matrix(balanced_simulation_matrices$logYhat,
+                           type=design_info$family,
+                           prob_str_0 = design_info$prob_zero,
+                           disp = 1) 
+
+# Generate unbalance in dataset and merge into one list
+unbalanced_simulation_matrices <- 
+  gen_sim_sub_matrices(design_info,
+                       design_matrix,
+                       balanced_response_matrix,
+                       function_seed=1,
+                       balanced_simulation_matrices,
+                       fixed_model_parameter_matrix=X)
+
+# Modify Design list
+design_info$X <- unbalanced_simulation_matrices$X
+design_info$design <- unbalanced_simulation_matrices$design
+
+
+# Show overview of design
+unbalanced_simulation_matrices$replicates %>%
+  kbl(full_width="F",
+      col.names = c("Treatment Group","Replicates in Group"),
+      align="c")%>%
+  kable_styling(full_width = F,
+                bootstrap_options = "striped",
+                position = "center")
+```
+
+
+
+
+# Fit perform GLMM ASCA on complete dataset
+```{r GLMM ASCA with Jackknife}
+# Fit GLMMs and Extract coefficients
+glmm_fit_results <- gen_long_response_df(unbalanced_simulation_matrices) %>%
+  fit_glmm2(long_response_df = .,
+           dist_family = "nbinom2",
+           zeroinfl = TRUE,
+           cores=8) %>%
+  extr_glmm_coef2(model_df = .,
+                  zeroinfl = TRUE,
+                  family = "nbinom2")
+
+# Perform 10-fold Jackknife
+glmm_jackknife_models <- fit_jackknife_models(glmm_fit_results,
+                                               design_info)
+glmm_jackknife_results <- process_jackknife_models(glmm_jackknife_models,
+                                                    design_info)
+
+
+
+# Modify Loadings into factors for later plotting
+glmm_jackknife_results$Pa$var <- factor(glmm_jackknife_results$Pa$var,levels=seq(1:16))
+glmm_jackknife_results$Pa <- arrange(glmm_jackknife_results$Pa,var)
+glmm_jackknife_results$Pab$var <- factor(glmm_jackknife_results$Pab$var,levels=seq(1:16))
+glmm_jackknife_results$Pab <- arrange(glmm_jackknife_results$Pab,var,PC)
+```
+ 
+ 
+ 
+
+# Plot Jackknife results
+```{r}
+# Time EFFECT 
+ggarrange(
+  glmm_jackknife_results$perc_a %>%
+  filter(PC %in% c(1:2))%>%
+  ggplot(aes(x=factor(PC),
+             y=median))+
+  geom_bar(stat="identity")+
+  geom_errorbar(aes(ymin=quantile_0.025,
+                    ymax=quantile_0.975))+
+  theme_classic()+
+  theme(aspect.ratio = 3)+
+  labs(y="Percentage Explained",
+       x="Principal Component"),
+  # Scores PC1
+  ggarrange(
+  glmm_jackknife_results$Ta %>% filter(PC==1)%>%
+    ggplot(aes(x=timepoint,
+               y=median))+
+    geom_point()+
+    geom_errorbar(aes(ymin=quantile_0.025,
+                    ymax=quantile_0.975))+
+    theme_classic()+
+    labs(x="Timepoint",
+         y="Score",
+         title="PC1")+
+    theme(plot.title = element_text(hjust=.5),
+        aspect.ratio = 1),
+  # Loadings PC1
+  glmm_jackknife_results$Pa %>% filter(PC==1)%>%
+  ggplot(aes(x=var,
+             y=median))+
+  geom_bar(stat="identity",
+           fill = c(rep(dark_purple,4),rep(teal,4),rep(dark_purple,4),rep(teal,4)))+
+  geom_point()+
+  geom_errorbar(aes(ymin=quantile_0.025,
+                    ymax=quantile_0.975))+
+  theme_classic()+
+  labs(x = "Variable",
+       y = "Loading",
+       title = "PC1")+
+  theme(plot.title=element_text(hjust=.5),
+        aspect.ratio = 1),
+  # Scores PC2
+  glmm_jackknife_results$Ta %>% filter(PC==2)%>%
+    ggplot(aes(x=timepoint,
+               y=median))+
+    geom_point()+
+    geom_errorbar(aes(ymin=quantile_0.025,
+                    ymax=quantile_0.975))+
+    theme_classic()+
+    labs(x="Timepoint",
+         y="Score",
+         title="PC2")+
+    theme(plot.title = element_text(hjust=.5),
+        aspect.ratio = 1),
+  # Loadings PC2
+  glmm_jackknife_results$Pa %>% filter(PC==2)%>%
+  ggplot(aes(x=var,
+             y=median))+
+  geom_bar(stat="identity",
+           fill = c(rep(dark_purple,4),rep(teal,4),rep(dark_purple,4),rep(teal,4)))+
+  geom_point()+
+  geom_errorbar(aes(ymin=quantile_0.025,
+                    ymax=quantile_0.975))+
+  theme_classic()+
+  labs(x = "Variable",
+       y = "Loading",
+       title = "PC2")+
+  theme(plot.title=element_text(hjust=.5),
+        aspect.ratio = 1),
+  # Plot settings
+  ncol=2,
+  nrow=2,
+  align="hv"),
+  widths=c(2,5)) %>%
+  annotate_figure(top=text_grob("Time Effect",
+                                size=18)) %>%
+  ggsave(filename=paste0("../Images/",Sys.Date(),"_A_zero_prob_",design_info$prob_zero,".png"),
+         plot=.,
+         width = 8,
+         height= 6)
+```
+
+
+```{r}
+# Time-Treatment Interaction
+ggarrange(
+  glmm_jackknife_results$perc_ab %>%
+  filter(PC %in% seq(1:2))%>%
+  ggplot(aes(x=factor(PC),
+             y=median))+
+  geom_bar(stat="identity")+
+  geom_errorbar(aes(ymin=quantile_0.025,
+                    ymax=quantile_0.975))+
+  theme_classic()+
+  theme(aspect.ratio = 3)+
+  labs(y="Percentage Explained",
+       x="Principal Component"),
+  ggarrange(
+  # Scores PC1
+  glmm_jackknife_results$Tab %>% filter(PC==1)%>%
+    ggplot(aes(x=timepoint,
+               y=-median,
+               color=treatment))+
+    geom_point()+
+    geom_line(aes(group=treatment))+
+    geom_errorbar(aes(ymin=-quantile_0.975,
+                    ymax=-quantile_0.025))+
+    theme_classic()+
+    labs(x="Timepoint",
+         y="Score",
+         title="PC1",
+         color="Treatment")+
+    theme(plot.title = element_text(hjust=.5),
+        aspect.ratio = 1)+
+    scale_color_viridis_d(),
+  # Loadings PC1
+  glmm_jackknife_results$Pab %>% filter(PC==1)%>%
+  ggplot(aes(x=var,
+             y=-median))+
+  geom_bar(stat="identity",
+           fill = c(rep(teal,4),rep(dark_purple,8),rep(teal,4)))+
+  geom_point()+
+  geom_errorbar(aes(ymin=-quantile_0.975,
+                    ymax=-quantile_0.025))+
+  theme_classic()+
+  labs(x = "Variable",
+       y = "Loading",
+       title = "PC1")+
+  theme(plot.title=element_text(hjust=.5),
+        aspect.ratio = 1),
+  # Scores PC2
+  glmm_jackknife_results$Tab %>% filter(PC==2)%>%
+    ggplot(aes(x=timepoint,
+               y=median,
+               color=treatment))+
+    geom_point()+
+    geom_line(aes(group=treatment))+
+    geom_errorbar(aes(ymin=quantile_0.025,
+                    ymax=quantile_0.975))+
+    theme_classic()+
+    labs(x="Timepoint",
+         y="Score",
+         title="PC2",
+       color = "Treatment")+
+    theme(plot.title = element_text(hjust=.5),
+        aspect.ratio = 1)+
+    scale_color_viridis_d(),
+  # Loadings PC2
+  glmm_jackknife_results$Pab %>% filter(PC==2)%>%
+  ggplot(aes(x=var,
+             y=median))+
+  geom_bar(stat="identity",
+           fill = c(rep(teal,4),rep(dark_purple,8),rep(teal,4)))+
+  geom_point()+
+  geom_errorbar(aes(ymin=quantile_0.025,
+                    ymax=quantile_0.975))+
+  theme_classic()+
+  labs(x = "Variable",
+       y = "Loading",
+       title = "PC2")+
+  theme(plot.title=element_text(hjust=.5),
+        aspect.ratio = 1),
+  # Plot settings
+  ncol=2,
+  nrow=2,
+  align="hv",
+  common.legend = TRUE), 
+  widths=c(2,5)) %>%
+  annotate_figure(top=text_grob("Time:Treatment Effect",
+                                size=18)) %>%
+  ggsave(filename=paste0("../Images/",Sys.Date(),"_AB_zero_prob_",design_info$prob_zero,".png"),
+         plot=.,
+         width = 8,
+         height= 6)
+
+
+Sys.Date()
+
+```
+
