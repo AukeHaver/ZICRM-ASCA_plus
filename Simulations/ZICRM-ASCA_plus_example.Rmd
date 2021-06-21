@@ -406,10 +406,9 @@ glmm_fit_results <- gen_long_response_df(unbalanced_simulation_matrices) %>%
                   family = "nbinom2",
                   include_residuals = TRUE)
 
-# Perform 10-fold Jackknife
+# Perform 7-fold Jackknife
 glmm_jackknife_models <- fit_jackknife_models(glmm_fit_results,
                                                design_info,
-                                              dist_family = "nbinom2",
                                               zeroinfl=TRUE)
 glmm_jackknife_results <- process_jackknife_models(glmm_jackknife_models,
                                                     design_info)

@@ -571,6 +571,71 @@ fit_jackknife_models <- function(fitted_models, # Fitted models on full dataset
   return(output)}
 
 
+# PERFORM GLMM JACKKNIFE (modified 15-05-2021)
+# long function with hard-coded options
+# could require improvements
+fit_jackknife_models <- function(fitted_models, # Fitted models on full dataset
+                                 design_info_list,
+                                 dist_family = "nbinom2",
+                                 zeroinfl = TRUE){   # design info
+  
+  # Recreate data from fitted models
+  original_data <- do.call("rbind",fitted_models$data) %>%
+    mutate(zOTU = rep(fitted_models$zOTU, each = nrow(fitted_models$data[[1]]))) %>%
+    arrange(timepoint,treatment,subject)
+  contrasts(original_data$timepoint) <- contr.sum(n_distinct(original_data$timepoint))
+  contrasts(original_data$treatment) <- contr.sum(n_distinct(original_data$treatment))
+  
+  # Make a dataframe for assigning group labels to each subject
+  subject_group_df <- 
+    # subjects have the same ID as before
+    tibble(subject = original_data$subject %>% unique(),
+           subgroup = generate_resampling_groups(original_data %>%
+                                                   select(subject,treatment) %>%
+                                                   distinct()%>%
+                                                   group_by(treatment)%>%
+                                                   summarize(replicates = n()) %>%
+                                                   pull("replicates"),
+                                                 folds = design_info_list$jackknife_folds))
+  # Create list to store models
+  jackknife_models <- list()
+  jackknife_zOTUs  <- list()
+  jackknife_PCA <- list()
+  jackknife_res <- list()
+  # Add subgroup info to original data
+  data_with_subgroups <- original_data %>%
+    left_join(subject_group_df,
+              by="subject") 
+  # Iterate over jackknife folds
+  for(i in 1:design_info_list$jackknife_folds
+  ){
+    print(paste0("starting fold ",i))
+    fold_start_time <- Sys.time()
+    jackknife_models[[i]]<-
+      data_with_subgroups %>% 
+      filter(!subgroup==i) %>%
+      fit_glmm(long_response_df = .,
+               dist_family = "nbinom2",
+               zeroinfl = TRUE,
+               cores=8)%>%
+      extr_glmm_coef(model_df = .,
+                     zeroinfl = TRUE,
+                     family = "nbinom2") %>% 
+      filter(!is.na(model)) %>%
+      select(-c(model,data))
+    jackknife_zOTUs[[i]]<- jackknife_models[[i]]$zOTU
+    print(paste0("fold ",i," finished in ",Sys.time()-fold_start_time))
+  }
+  # Make a list of zOTUs which were succesfully fitted in each fold
+  shared_fitted_zOTUs <- Reduce(intersect,jackknife_zOTUs)
+  
+  output <- list()
+  output$zOTUs <- shared_fitted_zOTUs
+  output$models<- jackknife_models
+  output$full_model <- fitted_models
+  output$subject_groups <- subject_group_df
+  return(output)}
+
 process_jackknife_models <- function(jackknife_models_list,
                                      design_info_list){
   shared_fitted_zOTUs <- jackknife_models_list$zOTUs
@@ -583,8 +648,10 @@ process_jackknife_models <- function(jackknife_models_list,
   reference_fit <- fitted_models %>% 
     filter(zOTU %in% shared_fitted_zOTUs)
   # Compose parameter matrices and perform pca on effect matrices
-  reference_pca <-comp_mat_from_coef2(reference_fit,
-                                      design_info_list$X) %>%
+  effect_matrices <-comp_mat_from_coef(reference_fit,
+                                       design_info_list$X)
+  effect_matrices$Ma_ab <- effect_matrices$Ma + effect_matrices$Mab
+  reference_pca <- effect_matrices %>%
     pca_effect_matrices()
   # Iterate over models, compose parameter matrices, perform pca
   # Finally perform procrustus rotation
@@ -607,9 +674,11 @@ process_jackknife_models <- function(jackknife_models_list,
     
     
     # Transform models into pca matrices per effect
-    fold_pca_res <- comp_mat_from_coef2(filter(jackknife_models[[i]], 
+    fold_coef_mat <- comp_mat_from_coef(filter(jackknife_models[[i]], 
                                                zOTU %in% shared_fitted_zOTUs),
-                                        fold_X) %>%
+                                        fold_X) 
+    fold_coef_mat$Ma_ab <- fold_coef_mat$Ma + fold_coef_mat$Mab
+    fold_pca_res <- fold_coef_mat %>%
       pca_effect_matrices()
     
     # Perform Procrustes rotation on time and interaction matrices
@@ -617,14 +686,22 @@ process_jackknife_models <- function(jackknife_models_list,
                                      fold_pca_res$Ma)
     fold_pca_res$Mab <- orthprocr_pca(reference_pca$Mab,
                                       fold_pca_res$Mab)
+    fold_pca_res$Ma_ab <- orthprocr_pca(reference_pca$Ma_ab,
+                                        fold_pca_res$Ma_ab)
     # Calculate explained variance
     
     fold_expl_a <- tibble(fold = i,
                           PC = seq(1:length(fold_pca_res$Ma$singular_values)),
-                          perc_expl = fold_pca_res$Ma$singular_values %>% expl_var_from_svd())
+                          perc_expl = fold_pca_res$Ma$singular_values %>% expl_var_from_svd())%>%
+      filter(PC %in% seq(1:15))
     fold_expl_ab <- tibble(fold = i,
                            PC = seq(1:length(fold_pca_res$Mab$singular_values)),
-                           perc_expl = fold_pca_res$Mab$singular_values %>% expl_var_from_svd())
+                           perc_expl = fold_pca_res$Mab$singular_values %>% expl_var_from_svd())%>%
+      filter(PC %in% seq(1:15))
+    fold_expl_a_ab <- tibble(fold = i,
+                             PC = seq(1:length(fold_pca_res$Ma_ab$singular_values)),
+                             perc_expl = fold_pca_res$Ma_ab$singular_values %>% expl_var_from_svd())%>%
+      filter(PC %in% seq(1:15))
     
     # Turning scores and loadings into long tibble
     fold_Ta <- fold_pca_res$Ma$scores %>%
@@ -633,14 +710,24 @@ process_jackknife_models <- function(jackknife_models_list,
       pivot_longer(cols=-colnames(jackknife_fold_design),
                    names_to = "PC",
                    values_to = "score",
-                   names_prefix = "V")
+                   names_prefix = "V")%>%
+      filter(PC %in% seq(1:15))
     fold_Tab <- fold_pca_res$Mab$scores %>%
       as_tibble(.name_repair)%>%
       cbind(jackknife_fold_design) %>%
       pivot_longer(cols=-colnames(jackknife_fold_design),
                    names_to = "PC",
                    values_to = "score",
-                   names_prefix = "V")
+                   names_prefix = "V")%>%
+      filter(PC %in% seq(1:15))
+    fold_Ta_ab <- fold_pca_res$Ma_ab$scores %>%
+      as_tibble(.name_repair)%>%
+      cbind(jackknife_fold_design) %>%
+      pivot_longer(cols=-colnames(jackknife_fold_design),
+                   names_to = "PC",
+                   values_to = "score",
+                   names_prefix = "V")%>%
+      filter(PC %in% seq(1:15))
     fold_Pa <- fold_pca_res$Ma$loadings %>%
       as_tibble(.name_repair)%>%
       mutate(var = shared_fitted_zOTUs,
@@ -648,7 +735,8 @@ process_jackknife_models <- function(jackknife_models_list,
       pivot_longer(col=-var,
                    names_to = "PC",
                    values_to = "loading",
-                   names_prefix = "V")
+                   names_prefix = "V")%>%
+      filter(PC %in% seq(1:15))
     fold_Pab <- fold_pca_res$Mab$loadings %>%
       as_tibble(.name_repair)%>%
       mutate(var = shared_fitted_zOTUs,
@@ -656,91 +744,49 @@ process_jackknife_models <- function(jackknife_models_list,
       pivot_longer(col=-var,
                    names_to = "PC",
                    values_to = "loading",
-                   names_prefix = "V")
+                   names_prefix = "V") %>%
+      filter(PC %in% seq(1:15))
+    fold_Pa_ab <- fold_pca_res$Ma_ab$loadings %>%
+      as_tibble(.name_repair)%>%
+      mutate(var = shared_fitted_zOTUs,
+             fold = i)%>%
+      pivot_longer(col=-var,
+                   names_to = "PC",
+                   values_to = "loading",
+                   names_prefix = "V") %>%
+      filter(PC %in% seq(1:15))
     # Merge long tibble list
     if(i == 1){
       jackknife_res$Ta <- fold_Ta
       jackknife_res$Pa <- fold_Pa
       jackknife_res$Tab <- fold_Tab
       jackknife_res$Pab <- fold_Pab
+      jackknife_res$Ta_ab <- fold_Ta_ab
+      jackknife_res$Pa_ab <- fold_Pa_ab
       jackknife_res$perc_a <- fold_expl_a
       jackknife_res$perc_ab<- fold_expl_ab
+      jackknife_res$perc_a_ab<- fold_expl_a_ab
     }else{
       jackknife_res$Ta <- rbind(jackknife_res$Ta,fold_Ta)
       jackknife_res$Pa <- rbind(jackknife_res$Pa,fold_Pa)
       jackknife_res$Tab <- rbind(jackknife_res$Tab,fold_Tab)
       jackknife_res$Pab <- rbind(jackknife_res$Pab,fold_Pab)
+      jackknife_res$Ta_ab <- rbind(jackknife_res$Ta_ab,fold_Ta_ab)
+      jackknife_res$Pa_ab <- rbind(jackknife_res$Pa_ab,fold_Pa_ab)
       jackknife_res$perc_a <- rbind(jackknife_res$perc_a,fold_expl_a)
       jackknife_res$perc_ab<- rbind(jackknife_res$perc_ab,fold_expl_ab)
+      jackknife_res$perc_a_ab<- rbind(jackknife_res$perc_a_ab,fold_expl_a_ab)
     }
   }
-  # Calculate 2.5th and 97.5 quantile and median over all folds
-  ## Scores
-  ### Time effect
-  jackknife_res$Ta<-jackknife_res$Ta %>% 
-    mutate(score = round(score,
-                         digits=10))%>%
-    select(-c(subject,treatment)) %>%
-    distinct() %>%
-    group_by(timepoint,PC)%>%
-    summarize(quantile_0.025 = quantile(score,.025),
-              median = quantile(score,.5),
-              quantile_0.975 = quantile(score,.975),
-              .groups="drop_last")
-  ### Interaction effect
-  jackknife_res$Tab<-jackknife_res$Tab %>% 
-    mutate(score = round(score,
-                         digits=10))%>%
-    select(-subject) %>%
-    distinct() %>%
-    group_by(timepoint,treatment,PC)%>%
-    summarize(quantile_0.025 = quantile(score,.025),
-              median = quantile(score,.5),
-              quantile_0.975 = quantile(score,.975),
-              .groups="drop_last")
-  ## Loadings
-  ### Time effect
-  jackknife_res$Pa <- 
-    jackknife_res$Pa %>%
-    group_by(var,PC) %>%
-    summarize(quantile_0.025 = quantile(loading,.025),
-              median = quantile(loading,.5),
-              quantile_0.975 = quantile(loading,.975),
-              .groups="drop_last")
-  ### Interaction effect
-  jackknife_res$Pab <-
-    jackknife_res$Pab %>%
-    group_by(var,PC) %>%
-    summarize(quantile_0.025 = quantile(loading,.025),
-              median = quantile(loading,.5),
-              quantile_0.975 = quantile(loading,.975),
-              .groups="drop_last")
-  ## Percentage Explained
-  ### Time effect
-  jackknife_res$perc_a <-
-    jackknife_res$perc_a %>%
-    group_by(PC) %>%
-    summarize(quantile_0.025 = quantile(perc_expl,.025),
-              median =         quantile(perc_expl,.5),
-              quantile_0.975 = quantile(perc_expl,.975),
-              .groups="drop_last")
-  ### Time effect
-  jackknife_res$perc_ab <-
-    jackknife_res$perc_ab %>%
-    group_by(PC) %>%
-    summarize(quantile_0.025 = quantile(perc_expl,.025),
-              median =         quantile(perc_expl,.5),
-              quantile_0.975 = quantile(perc_expl,.975),
-              .groups="drop_last")
-  return(jackknife_res)
-}
+  jackknife_res$reference <- reference_pca
+  return(jackknife_res)}
 
-# COMPOSE EFFECT MATRICES FROM COEFFICIENTS (Modified 03-06-2021)
+# COMPOSE EFFECT MATRICES FROM COEFFICIENTS (Modified 15-05-2021)
 # Currently very-much hard-coded
 # Integration of effects in design info list could allow for broader analysis
-comp_mat_from_coef2 <- function(glmm_results_df,  # List with GLMM fit results
-                                fixef_mod_mat,   # Fixed effect model matrix
-                                include_residuals=FALSE){
+comp_mat_from_coef <- function(glmm_results_df,  # List with GLMM fit results
+                               fixef_mod_mat,   # Fixed effect model matrix
+                               include_residuals=FALSE){
   
   # Initialize list for storing results
   output <- list()
@@ -750,8 +796,8 @@ comp_mat_from_coef2 <- function(glmm_results_df,  # List with GLMM fit results
   row.names(output$fixed_coef_mat)<-NULL # Required, otherwise rownames error
   # Recompose effect matrices
   # Mean (might need different term for matrix)
-  output$M0 <- matrix(fixef_mod_mat)[,1] %*% 
-    t(output$fixed_coef_mat[1,])
+  output$M0 <- as.matrix(fixef_mod_mat)[,1] %*% 
+    t(as.matrix(output$fixed_coef_mat[1,]))
   colnames(output$M0)<-glmm_results_df$zOTU
   # Time effect
   output$Ma <- fixef_mod_mat[,2:3] %*% output$fixed_coef_mat[2:3,]
@@ -766,8 +812,8 @@ comp_mat_from_coef2 <- function(glmm_results_df,  # List with GLMM fit results
   colnames(output$Ms)<-glmm_results_df$zOTU
   # Simulated residuals
   if(include_residuals){
-       output$Mres <- do.call("cbind",glmm_results_df$resids)
-       colnames(output$Ms)<-glmm_results_df$zOTU}
+    output$Mres <- do.call("cbind",glmm_results_df$resids)
+    colnames(output$Ms)<-glmm_results_df$zOTU}
   # Return results
   return(output)
 }
