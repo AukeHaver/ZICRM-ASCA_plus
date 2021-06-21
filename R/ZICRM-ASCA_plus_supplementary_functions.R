@@ -2,7 +2,7 @@
 ### Author: Auke Haver
 ### BDA GROUP SILS Amsterdam
 ### Project: Zero-inflated GLMM ASCA
-### Date 03-06-2021
+### Date 21-06-2021
 
 # LOAD PACKAGES (modified 03-06-2021)
 library("tidyverse") # For 
@@ -246,10 +246,10 @@ gen_sim_sub_matrices <- function(design_info_list,
   return(output)
 }
 
-# MUTLICORE GLMM FITTING FUNCTION (modified 03-06-2021)
+# MUTLICORE GLMM FITTING FUNCTION (modified 21-06-2021)
 # Function for fitting (zero-inflated) Poisson or NB GLMMS 
 # Includes skip for failed models
-fit_glmm2 <- function(long_response_df,
+fit_glmm <- function(long_response_df,
                       dist_family = "nbinom2",
                       zeroinfl = TRUE,
                       cores = 1){
@@ -264,7 +264,8 @@ fit_glmm2 <- function(long_response_df,
                        family = dist_family,
                        data=x,
                        ziformula = ~1,
-                       REML = TRUE),otherwise=NA))))
+                       REML = TRUE),
+               otherwise=NA))))
   } else {
     return(long_response_df %>%
              group_by(zOTU)%>%
@@ -272,9 +273,9 @@ fit_glmm2 <- function(long_response_df,
              mutate(model = future_map(data,possibly(function(x)
                glmmTMB(count ~ timepoint + timepoint:treatment+(1|subject),
                        family = dist_family,
-                       ziformula = ~1,
                        data=x,
-                       REML = TRUE),otherwise=NA))))
+                       REML = TRUE),
+               otherwise=NA))))
   }
 }
 
@@ -289,14 +290,15 @@ gen_long_response_df <- function(matrix_list){
            pivot_longer(cols=!c("subject","timepoint","treatment"),
                         values_to = "count",
                         names_to = "zOTU") %>%
-           mutate(zOTU = factor(zOTU, levels = seq(1:ncol(matrix_list$response)))))
+           mutate(zOTU = factor(zOTU, 
+                                levels = seq(1:ncol(matrix_list$response)))))
 }
 
 
 
-# EXTRACT GLMM COEF MULTICORE FROM glmmTMB (modified 03-06-2021)
+# EXTRACT GLMM COEF MULTICORE FROM glmmTMB (modified 21-06-2021)
 # Currently only working for zero_inflated negative binomial
-extr_glmm_coef2 <- function(model_df,
+extr_glmm_coef <- function(model_df,
                             zeroinfl = TRUE,
                             family = "nbinom2",
                             include_residuals = FALSE){
@@ -546,11 +548,11 @@ fit_jackknife_models <- function(fitted_models, # Fitted models on full dataset
     jackknife_models[[i]]<-
       data_with_subgroups %>% 
       filter(!subgroup==i) %>%
-      fit_glmm2(long_response_df = .,
+      fit_glmm(long_response_df = .,
                 dist_family = dist_family,
                 zeroinfl = zeroinfl,
                 cores=8)%>%
-      extr_glmm_coef2(model_df = .,
+      extr_glmm_coef(model_df = .,
                      zeroinfl = zeroinfl,
                      family = dist_family) %>% 
       filter(!is.na(model)) %>%
