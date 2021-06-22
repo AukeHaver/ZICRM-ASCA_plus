@@ -437,14 +437,18 @@ glmm_jackknife_results$Pab     <- arrange(glmm_jackknife_results$Pab,
 # SCORES PC1
 ggarrange(
   glmm_jackknife_results$Ta %>% 
-    filter(PC==1)%>%
+    filter(PC==1) %>%
+      group_by(timepoint,treatment)%>%
+      mutate(quantile_025 = quantile(score,.025),
+             quantile_500 = quantile(score,.500),
+             quantile_975 = quantile(score,.975)) %>%
     # Initialize Plot
     ggplot(aes(x=timepoint,
-               y=median))+
+               y=quantile_500))+
     # Add Geometric Objects
     geom_point(size=5)+
-    geom_errorbar(aes(ymin=quantile_0.025,
-                    ymax=quantile_0.975))+
+    geom_errorbar(aes(ymin=quantile_025,
+                      ymax=quantile_975))+
     # Modify Theme
     theme_classic(base_family="Times")+
     theme(plot.title=element_text(hjust=.5),
@@ -454,21 +458,29 @@ ggarrange(
     labs(x="Timepoint",
          y=paste0("Scores PC1 (",
                   filter(glmm_jackknife_results$perc_a,
-                         PC==1)$quantile_0.025 %>% 
+                         PC==1)$perc_expl %>%
+                    quantile(.025) %>% 
                     round(1) %>% 
                     format(nsmall=1),
                   "-",
                   filter(glmm_jackknife_results$perc_a,
-                         PC==1)$quantile_0.975 %>% 
+                         PC==1)$perc_expl %>%
+                    quantile(.975) %>% 
                     round(1) %>% 
                     format(nsmall=1),
                   "%)")),
   # LOADINGS PC1
   glmm_jackknife_results$Pa %>% 
     filter(PC==1)%>%
+      group_by(var)%>%
+      mutate(quantile_025 = quantile(loading,.025),
+             quantile_500 = quantile(loading,.500),
+             quantile_975 = quantile(loading,.975)) %>%
+      select(-loading)%>%
+    distinct()%>%
     # Initialize Plot
     ggplot(aes(x=var,
-               y=median))+
+               y=quantile_500))+
     # Add Geometric Objects
     geom_bar(stat="identity",
              fill = c(rep(dark_purple,4),
@@ -476,8 +488,8 @@ ggarrange(
                       rep(dark_purple,4),
                       rep(teal,4)))+
     geom_point()+
-    geom_errorbar(aes(ymin=quantile_0.025,
-                    ymax=quantile_0.975))+
+    geom_errorbar(aes(ymin=quantile_025,
+                    ymax=quantile_975))+
     # Modify Theme
     theme_classic(base_family="Times")+
     theme(plot.title=element_text(hjust=.5),
@@ -487,25 +499,31 @@ ggarrange(
     labs(x = "Variable",
          y = paste0("Loadings PC1 (",
                     filter(glmm_jackknife_results$perc_a,
-                           PC==1)$quantile_0.025 %>% 
+                           PC==1)$perc_expl %>%
+                    quantile(.025) %>% 
                       round(1) %>% 
                       format(nsmall=1),
                     "-",
                     filter(glmm_jackknife_results$perc_a,
-                           PC==1)$quantile_0.975 %>% 
+                           PC==1)$perc_expl %>%
+                    quantile(.975) %>%  
                       round(1) %>% 
                       format(nsmall=1),
                     "%)")),
   # SCORES PC2
   glmm_jackknife_results$Ta %>% 
-    filter(PC==2)%>%
+      filter(PC==2) %>%
+      group_by(timepoint,treatment)%>%
+      mutate(quantile_025 = quantile(score,.025),
+             quantile_500 = quantile(score,.500),
+             quantile_975 = quantile(score,.975)) %>%
     # Initialize Plot
     ggplot(aes(x=timepoint,
-               y=median))+
+               y=quantile_500))+
     # Add Geometric Objects
     geom_point(size=5)+
-    geom_errorbar(aes(ymin=quantile_0.025,
-                    ymax=quantile_0.975))+
+    geom_errorbar(aes(ymin=quantile_025,
+                    ymax=quantile_975))+
     # Modify Theme
     theme_classic(base_family="Times")+
     theme(plot.title=element_text(hjust=.5),
@@ -515,21 +533,29 @@ ggarrange(
     labs(x="Timepoint",
          y=paste0("Scores PC2 (",
                   filter(glmm_jackknife_results$perc_a,
-                         PC==2)$quantile_0.025 %>% 
+                         PC==2)$perc_expl %>%
+                    quantile(.025) %>% 
                     round(1) %>% 
                     format(nsmall=1),
                   "-",
                   filter(glmm_jackknife_results$perc_a,
-                         PC==2)$quantile_0.975 %>% 
+                         PC==2)$perc_expl %>%
+                    quantile(.975)%>% 
                     round(1) %>% 
                     format(nsmall=1),
                   "%)")),
   # LOADINGS PC2
   glmm_jackknife_results$Pa %>% 
     filter(PC==2)%>%
+      group_by(var)%>%
+      mutate(quantile_025 = quantile(loading,.025),
+             quantile_500 = quantile(loading,.500),
+             quantile_975 = quantile(loading,.975)) %>%
+      select(-loading)%>%
+    distinct()%>%
     # Initialize Plot
     ggplot(aes(x=var,
-               y=median))+
+               y=quantile_500))+
     # Add Geometric Objects
     geom_bar(stat="identity",
              fill = c(rep(dark_purple,4),
@@ -537,8 +563,8 @@ ggarrange(
                       rep(dark_purple,4),
                       rep(teal,4)))+
     geom_point()+
-    geom_errorbar(aes(ymin=quantile_0.025,
-                      ymax=quantile_0.975))+
+    geom_errorbar(aes(ymin=quantile_025,
+                      ymax=quantile_975))+
     # Modify Theme
     theme_classic(base_family="Times")+
     theme(plot.title=element_text(hjust=.5),
@@ -548,12 +574,14 @@ ggarrange(
     labs(x = "Variable",
          y=paste0("Loadings PC2 (",
                   filter(glmm_jackknife_results$perc_a,
-                         PC==2)$quantile_0.025 %>% 
+                         PC==2)$perc_expl %>%
+                    quantile(.025) %>% 
                     round(1) %>% 
                     format(nsmall=1),
                   "-",
                   filter(glmm_jackknife_results$perc_a,
-                         PC==2)$quantile_0.975 %>% 
+                         PC==2)$perc_expl %>%
+                    quantile(.975) %>% 
                     round(1) %>% 
                     format(nsmall=1),
                   "%)")),
@@ -581,20 +609,25 @@ ggarrange(
 # Time-Treatment Interaction
 ggarrange(
   # SCORES PC1
-  glmm_jackknife_results$Tab %>% filter(PC==1)%>%
+  glmm_jackknife_results$Tab %>% 
+      filter(PC==1) %>%
+      group_by(timepoint,treatment)%>%
+      mutate(quantile_025 = quantile(score,.025),
+             quantile_500 = quantile(score,.500),
+             quantile_975 = quantile(score,.975)) %>%
     ggplot(aes(x=timepoint,
-               y=-median,
+               y=-quantile_500,
                color=treatment))+
     geom_point(size=5)+
     geom_line(aes(group=treatment))+
-    geom_errorbar(aes(ymin=-quantile_0.975,
-                    ymax=-quantile_0.025))+
+    geom_errorbar(aes(ymin=-quantile_975,
+                    ymax=-quantile_025))+
     theme_classic(base_family="Times")+
     labs(x="Timepoint",
          y=paste0("Scores PC1 (",
-                  filter(glmm_jackknife_results$perc_ab,PC==1)$quantile_0.025 %>% round(1) %>% format(nsmall=1),
+                  filter(glmm_jackknife_results$perc_ab,PC==1)$perc_expl %>%                     quantile(.025) %>%  round(1) %>% format(nsmall=1),
                   "-",
-                  filter(glmm_jackknife_results$perc_ab,PC==1)$quantile_0.975 %>% round(1) %>% format(nsmall=1),
+                  filter(glmm_jackknife_results$perc_ab,PC==1)$perc_expl %>%                     quantile(.975) %>%  round(1) %>% format(nsmall=1),
                   "%)"),
          color="Treatment Group")+
     theme(plot.title=element_text(hjust=.5),
@@ -602,22 +635,29 @@ ggarrange(
         aspect.ratio = 1)+
     scale_color_viridis_d(),
   # LOADINGS PC1
-  glmm_jackknife_results$Pab %>% filter(PC==1)%>%
+  glmm_jackknife_results$Pab %>% 
+    filter(PC==1)%>%
+      group_by(var)%>%
+      mutate(quantile_025 = quantile(loading,.025),
+             quantile_500 = quantile(loading,.500),
+             quantile_975 = quantile(loading,.975)) %>%
+      select(-loading)%>%
+    distinct()%>%
   ggplot(aes(x=var,
-             y=-median))+
+             y=-quantile_500))+
   geom_bar(stat="identity",
            fill = c(rep(teal,4),rep(dark_purple,8),rep(teal,4)))+
   geom_point()+
-  geom_errorbar(aes(ymin=-quantile_0.975,
-                    ymax=-quantile_0.025))+
+  geom_errorbar(aes(ymin=-quantile_975,
+                    ymax=-quantile_025))+
   theme_classic(base_family="Times")+
   labs(x = "Variable",
        y=paste0("Loadings PC1 (",
-                  filter(glmm_jackknife_results$perc_ab,PC==1)$quantile_0.025 %>% 
+                  filter(glmm_jackknife_results$perc_ab,PC==1)$perc_expl %>%                     quantile(.025) %>%  
                   round(1) %>% 
                   format(nsmall=1),
                   "-",
-                  filter(glmm_jackknife_results$perc_ab,PC==1)$quantile_0.975 %>% 
+                  filter(glmm_jackknife_results$perc_ab,PC==1)$perc_expl %>%                     quantile(.975) %>%  
                   round(1) %>% 
                   format(nsmall=1),
                   "%)"))+
@@ -625,20 +665,26 @@ ggarrange(
         text=element_text(size=20),
         aspect.ratio = 1),
   # SCORES PC2
-  glmm_jackknife_results$Tab %>% filter(PC==2)%>%
+  glmm_jackknife_results$Tab %>% 
+    
+      filter(PC==2) %>%
+      group_by(timepoint,treatment)%>%
+      mutate(quantile_025 = quantile(score,.025),
+             quantile_500 = quantile(score,.500),
+             quantile_975 = quantile(score,.975)) %>%
     ggplot(aes(x=timepoint,
-               y=median,
+               y=quantile_500,
                color=treatment))+
     geom_point(size=5)+
     geom_line(aes(group=treatment))+
-    geom_errorbar(aes(ymin=quantile_0.025,
-                    ymax=quantile_0.975))+
+    geom_errorbar(aes(ymin=quantile_025,
+                    ymax=quantile_975))+
     theme_classic(base_family="Times")+
     labs(x="Timepoint",
          y=paste0("Scores PC2 (",
-                  filter(glmm_jackknife_results$perc_ab,PC==2)$quantile_0.025 %>% round(1) %>% format(nsmall=1),
+                  filter(glmm_jackknife_results$perc_ab,PC==2)$perc_expl %>%                     quantile(.025) %>%  round(1) %>% format(nsmall=1),
                   "-",
-                  filter(glmm_jackknife_results$perc_ab,PC==2)$quantile_0.975 %>% round(1) %>% format(nsmall=1),
+                  filter(glmm_jackknife_results$perc_ab,PC==2)$perc_expl %>%                     quantile(.975) %>%  round(1) %>% format(nsmall=1),
                   "%)"),
        color = "Treatment Group")+
     theme(plot.title=element_text(hjust=.5),
@@ -647,19 +693,25 @@ ggarrange(
     scale_color_viridis_d(),
   # LOADINGS PC2
   glmm_jackknife_results$Pab %>% filter(PC==2)%>%
+      group_by(var)%>%
+      mutate(quantile_025 = quantile(loading,.025),
+             quantile_500 = quantile(loading,.500),
+             quantile_975 = quantile(loading,.975)) %>%
+      select(-loading)%>%
+    distinct()%>%
   ggplot(aes(x=var,
-             y=median))+
+             y=quantile_500))+
   geom_bar(stat="identity",
            fill = c(rep(teal,4),rep(dark_purple,8),rep(teal,4)))+
   geom_point()+
-  geom_errorbar(aes(ymin=quantile_0.025,
-                    ymax=quantile_0.975))+
+  geom_errorbar(aes(ymin=quantile_025,
+                    ymax=quantile_975))+
   theme_classic(base_family="Times")+
   labs(x = "Variable",
        y=paste0("Loadings PC2 (",
-                  filter(glmm_jackknife_results$perc_ab,PC==2)$quantile_0.025 %>% round(1) %>% format(nsmall=1),
+                  filter(glmm_jackknife_results$perc_ab,PC==2)$perc_expl %>%                     quantile(.025) %>%  round(1) %>% format(nsmall=1),
                   "-",
-                  filter(glmm_jackknife_results$perc_ab,PC==2)$quantile_0.975 %>% round(1) %>% format(nsmall=1),
+                  filter(glmm_jackknife_results$perc_ab,PC==2)$perc_expl %>%                     quantile(.975) %>%  round(1) %>% format(nsmall=1),
                   "%)"))+
   theme(plot.title=element_text(hjust=.5),
         text=element_text(size=20),
