@@ -33,9 +33,9 @@ design_info <- gen_sim_info(n_treatments       = 5,
                             n_PC               = 2 ,
                             n_variables        = 16,
                             n_subjects         = 208,
-                            n_dummy_replicates = 60,
+                            n_dummy_replicates = 300,
                             family             = "zipois",
-                            prob_zero          = 0.5,
+                            prob_zero          = 0.50,
                             jackknife_fold     = 7) 
 
 # Generate Design Matrix
@@ -57,7 +57,7 @@ Ta <- c(-4.00, 0.00, 4.00,      # PC 1
   matrix(ncol=2) 
 ## Time:Treatment Interaction Effect
 Tab<-c(0.00, 0.02,-0.01,-0.02, 0.01, 3.00, 1.00,-0.50,-1.50,-2.00, 4.00,-0.50,-1.00,-1.50,-1.00,    # PC 1
-       4.00,-0.50,-1.50,-0.50,-1.50, 0.10, 0.00, 0.30,-0.20,-0.20, 0.00, 0.30,-0.30, 0.10,-0.10)%>% # PC 2
+       4.00,-0.50,-1.50,-0.50,-1.50, 0.40,-0.70, 0.00, 0.20, 0.10, 0.01,-0.09, 0.06, 0.01, 0.01)%>% # PC 2
   rep(each = design_info$n_dummy_replicates)%>% 
   matrix(ncol=design_info$n_PC) 
 
@@ -106,7 +106,7 @@ ggarrange(
     # Labels
     labs(x="Timepoint",
          y=paste0("Scores PC1 (",
-                  expl_var_ab[1],
+                  expl_var_a[1],
                   "%)"),
        color="Treatment Group"),
   # LOADINGS PC1
@@ -184,10 +184,10 @@ ggarrange(
   annotate_figure(top=text_grob("Time Effect (A)",
                                 size=30,
                                 family="Times")) %>%
-  # Export to PNG
-  ggsave(filename=paste0("../Images/",
+  # Export to pdf
+  ggexport(filename=paste0("../Images/",
                          Sys.Date(),
-                         "_ZIGM_ASCA_Time_before.png"),
+                         "_ZIGM_ASCA_Time_before.pdf"),
          plot=.,
          width = 8,
          height= 8)
@@ -215,7 +215,9 @@ ggarrange(
     # Labels
     labs(x="Timepoint",
          y=paste0("Scores PC1 (",
-                  expl_var_ab[1],
+                  expl_var_ab[1] %>%
+                    round(1)%>%
+                    format(nsmall=1),
                   "%)"),
        color="Treatment Group"),
   # LOADINGS PC1
@@ -239,7 +241,9 @@ ggarrange(
     # Labels
     labs(x = "Variable",
          y = paste0("Loadings PC1 (",
-                    expl_var_ab[1],
+                    expl_var_ab[1] %>%
+                    round(1)%>%
+                    format(nsmall=1),
                     "%)")),
   # SCORES PC2
   design_matrix %>% 
@@ -262,7 +266,9 @@ ggarrange(
     # Labels
     labs(x="Timepoint",
          y=paste0("Scores PC2 (",
-                  expl_var_ab[2],
+                  expl_var_ab[2] %>%
+                    round(1)%>%
+                    format(nsmall=1),
                   "%)"),
        color="Treatment Group"),
   # LOADINGS PC2
@@ -285,7 +291,9 @@ ggarrange(
     # Labels
     labs(x="Timepoint",
          y=paste0("Loadings PC2 (",
-                  expl_var_ab[2],
+                  expl_var_ab[2] %>%
+                    round(1)%>%
+                    format(nsmall=1),
                   "%)")),
   # Plot settings
   ncol=2,
@@ -296,10 +304,10 @@ ggarrange(
   annotate_figure(top=text_grob("Interaction Effect (AB)",
                                 size=30,
                                 family = "Times")) %>%
-  # Export to PNG
-  ggsave(filename=paste0("../Images/",
+  # Export to pdf
+  ggexport(filename=paste0("../Images/",
                          Sys.Date(),
-                         "_ZIGM_ASCA_Interaction_before.png"),
+                         "_ZIGM_ASCA_Interaction_before.pdf"),
          plot=.,
          width = 8,
          height= 8)
@@ -363,28 +371,28 @@ gen_long_response_df(unbalanced_simulation_matrices) %>%
                       ggplot(aes(x=count))+
                       geom_histogram(bins=15)+
                       theme_classic(base_family="Times",
-                                    base_size = 10)+
+                                    base_size = 14)+
                       theme(axis.text.x = element_text(angle=45,
                                                        hjust=1))+
                       labs(x=element_blank(),
                            y=element_blank()))) %>%
   pull("plot") %>%
   ggarrange(plotlist=.,
-            ncol=8,
-            nrow=2,
+            ncol=4,
+            nrow=4,
             labels="AUTO",
             label.x=.75)%>%
   annotate_figure(bottom = text_grob("zOTU Count",family = "Times",size=20),
                   left = text_grob("Frequency (counts)",
-                                   size=10,
+                                   size=20,
                                    family="Times",
                                    rot=90)) %>%
-  ggsave(filename=paste0("../Images/",
+  ggexport(filename=paste0("../Images/",
                          Sys.Date(),
-                         "_ZIGM_ASCA_Zero-inflation_per_zOTU.png"),
+                         "_ZIGM_ASCA_Zero-inflation_per_zOTU.pdf"),
          plot=.,
-         width = 10,
-         height= 4)
+         width = 6,
+         height= 6)
 
 
 
@@ -592,13 +600,13 @@ ggarrange(
   annotate_figure(top=text_grob("Time Effect (A)",
                                 family = "Times",
                                 size=30)) %>%
-  ggsave(filename=paste0("../Images/",
+  ggexport(filename=paste0("../Images/",
                          Sys.Date(),
                          "_A_",
                          design_info$prob_zero,
                          "_REP_",
                          design_info$n_subjects,
-                         ".png"),
+                         ".pdf"),
          plot=.,
          width = 8,
          height= 8)
@@ -669,9 +677,9 @@ ggarrange(
     
       filter(PC==2) %>%
       group_by(timepoint,treatment)%>%
-      mutate(quantile_025 = quantile(score,.025),
-             quantile_500 = quantile(score,.500),
-             quantile_975 = quantile(score,.975)) %>%
+      mutate(quantile_025 = -quantile(score,.975),
+             quantile_500 = -quantile(score,.500),
+             quantile_975 = -quantile(score,.025)) %>%
     ggplot(aes(x=timepoint,
                y=quantile_500,
                color=treatment))+
@@ -694,9 +702,9 @@ ggarrange(
   # LOADINGS PC2
   glmm_jackknife_results$Pab %>% filter(PC==2)%>%
       group_by(var)%>%
-      mutate(quantile_025 = quantile(loading,.025),
-             quantile_500 = quantile(loading,.500),
-             quantile_975 = quantile(loading,.975)) %>%
+      mutate(quantile_025 = -quantile(loading,.975),
+             quantile_500 = -quantile(loading,.500),
+             quantile_975 = -quantile(loading,.025)) %>%
       select(-loading)%>%
     distinct()%>%
   ggplot(aes(x=var,
@@ -724,7 +732,7 @@ ggarrange(
   annotate_figure(top=text_grob("Interaction Effect (AB)",
                                 family="Times",
                                 size=30)) %>%
-  ggsave(filename=paste0("../Images/",Sys.Date(),"_AB_",design_info$prob_zero,"_REP_",design_info$n_subjects,".png"),
+  ggexport(filename=paste0("../Images/",Sys.Date(),"_AB_",design_info$prob_zero,"_REP_",design_info$n_subjects,".pdf"),
          plot=.,
          width = 8,
          height= 8)
