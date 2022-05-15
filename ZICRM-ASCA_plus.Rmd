@@ -1,16 +1,13 @@
 ---
-title: "Zero-inflated GLMM ASCA (Poisson) Simulation"
+title: "Zero-inflated GLMM ASCA Simulation"
 author: "Auke Haver"
-date: "21/06/2021"
+date: "15/05/2022"
 output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-```
-
-```{r packages and functions,echo=FALSE, warning=FALSE, include=FALSE}
-source("../R/ZICRM-ASCA_plus_supplementary_functions.R",local=TRUE)
+source("R/ZICRM-ASCA_plus_supplementary_functions.R",local=TRUE)
 ```
 
 # Introduction
@@ -34,8 +31,9 @@ design_info <- gen_sim_info(n_treatments       = 5,
                             n_variables        = 16,
                             n_subjects         = 208,
                             n_dummy_replicates = 300,
-                            family             = "zipois",
+                            family             = "nbinom", # choose pois, zipois, nbinom, zibinom
                             prob_zero          = 0.50,
+                            sigma               = 1,
                             jackknife_fold     = 7) 
 
 # Generate Design Matrix
@@ -43,7 +41,28 @@ design_matrix <- gen_sim_design(design_info)
 
 # Construct a fixed effect model matrix
 X <- model.matrix(~timepoint+timepoint:treatment,
-             design_matrix)
+                  design_matrix)
+
+
+output_dir <- paste0(
+  "Result/",
+  "ZICRM-ASCA_plus_",
+  design_info$family,
+  "_",
+  Sys.Date(),
+  "_",
+  design_info$prob_zero,
+  "_",
+  design_info$sigma,
+  "/"
+)
+# Prepare output directory
+for(dir in c("Result", output_dir)){
+  while(!file.exists(dir)){
+    dir.create(dir)
+  }
+}
+
 ```
 
 ## Scores and Loadings
@@ -52,7 +71,7 @@ Having decided the design of the simulation, we will continue with setting the s
 # SCORES
 ## Time Effect
 Ta <- c(-4.00, 0.00, 4.00,      # PC 1
-         1.00,-2.00, 1.00) %>%  # PC 2
+        1.00,-2.00, 1.00) %>%  # PC 2
   rep(each = design_info$n_treatments*design_info$n_dummy_replicates) %>% 
   matrix(ncol=2) 
 ## Time:Treatment Interaction Effect
@@ -101,14 +120,14 @@ ggarrange(
     # Theme
     theme_classic(base_family="Times")+
     theme(plot.title = element_text(hjust=.5),
-        text=element_text(size=20),
-        aspect.ratio = 1)+
+          text=element_text(size=20),
+          aspect.ratio = 1)+
     # Labels
     labs(x="Timepoint",
          y=paste0("Scores PC1 (",
                   expl_var_a[1],
                   "%)"),
-       color="Treatment Group"),
+         color="Treatment Group"),
   # LOADINGS PC1
   tibble(var = LETTERS[1:nrow(Pa)],
          loading = Pa[,1])%>%
@@ -146,13 +165,13 @@ ggarrange(
     # Theme
     theme_classic(base_family="Times")+
     theme(plot.title = element_text(hjust=.5),
-        text=element_text(size=20),
-        aspect.ratio = 1)+
+          text=element_text(size=20),
+          aspect.ratio = 1)+
     # Labels
     labs(x="Timepoint",
          y=paste0("Scores PC2 (",
-         expl_var_a[2],
-         "%)")),
+                  expl_var_a[2],
+                  "%)")),
   # LOADINGS PC2
   tibble(var = LETTERS[1:nrow(Pa)],
          loading = Pa[,2])%>%
@@ -185,12 +204,13 @@ ggarrange(
                                 size=30,
                                 family="Times")) %>%
   # Export to pdf
-  ggexport(filename=paste0("../Images/",
-                         Sys.Date(),
-                         "_ZIGM_ASCA_Time_before.pdf"),
-         plot=.,
-         width = 8,
-         height= 8)
+  ggexport(
+    filename=paste0(
+      output_dir,
+      "Time_Simulated.pdf"),
+    plot=.,
+    width = 8,
+    height= 8)
 
 # Time-Treatment Interaction
 ggarrange(
@@ -209,8 +229,8 @@ ggarrange(
     # Theme
     theme_classic(base_family="Times")+
     theme(plot.title = element_text(hjust=.5),
-        text=element_text(size=20),
-        aspect.ratio = 1)+
+          text=element_text(size=20),
+          aspect.ratio = 1)+
     scale_color_viridis_d()+
     # Labels
     labs(x="Timepoint",
@@ -219,7 +239,7 @@ ggarrange(
                     round(1)%>%
                     format(nsmall=1),
                   "%)"),
-       color="Treatment Group"),
+         color="Treatment Group"),
   # LOADINGS PC1
   tibble(var = LETTERS[1:nrow(Pab)],
          loading = Pab[,1])%>%
@@ -242,8 +262,8 @@ ggarrange(
     labs(x = "Variable",
          y = paste0("Loadings PC1 (",
                     expl_var_ab[1] %>%
-                    round(1)%>%
-                    format(nsmall=1),
+                      round(1)%>%
+                      format(nsmall=1),
                     "%)")),
   # SCORES PC2
   design_matrix %>% 
@@ -260,8 +280,8 @@ ggarrange(
     # Theme
     theme_classic(base_family="Times")+
     theme(plot.title = element_text(hjust=.5),
-        text=element_text(size=20),
-        aspect.ratio = 1)+
+          text=element_text(size=20),
+          aspect.ratio = 1)+
     scale_color_viridis_d()+
     # Labels
     labs(x="Timepoint",
@@ -270,7 +290,7 @@ ggarrange(
                     round(1)%>%
                     format(nsmall=1),
                   "%)"),
-       color="Treatment Group"),
+         color="Treatment Group"),
   # LOADINGS PC2
   tibble(var = LETTERS[1:nrow(Pab)],
          loading = Pab[,2])%>%
@@ -305,12 +325,10 @@ ggarrange(
                                 size=30,
                                 family = "Times")) %>%
   # Export to pdf
-  ggexport(filename=paste0("../Images/",
-                         Sys.Date(),
-                         "_ZIGM_ASCA_Interaction_before.pdf"),
-         plot=.,
-         width = 8,
-         height= 8)
+  ggexport(filename=paste0(output_dir, "Interaction_Simulated.pdf"),
+           plot=.,
+           width = 8,
+           height= 8)
 ```
 
 ## Compose Matrices and unbalance dataset
@@ -318,23 +336,23 @@ Next, we will create balanced simulation matrices from the design info and the f
 ```{r Compose Matrices and Unbalance}
 # Compose (Effect) Matrices
 balanced_simulation_matrices <- compose_matrices(design_info,
-                                        function_seed=1,
-                                        mu=5,
-                                        effects = c("time","interaction"),
-                                        scores_time = Ta,
-                                        scores_interaction = Tab,
-                                        loadings_time = Pa,
-                                        loadings_interaction = Pab,
-                                        include_subject = TRUE,
-                                        subject_mu = 0,
-                                        subject_Sigma = .05)
+                                                 function_seed=1,
+                                                 mu=5,
+                                                 effects = c("time","interaction"),
+                                                 scores_time = Ta,
+                                                 scores_interaction = Tab,
+                                                 loadings_time = Pa,
+                                                 loadings_interaction = Pab,
+                                                 include_subject = TRUE,
+                                                 subject_mu = 0,
+                                                 subject_Sigma = .05)
 
 # Sample from distribution with certain mean
 balanced_response_matrix <- 
   generate_response_matrix(balanced_simulation_matrices$logYhat,
                            type=design_info$family,
                            prob_str_0 = design_info$prob_zero,
-                           disp = 1) 
+                           sigma = design_info$sigma) 
 
 # Generate unbalance in dataset and merge into one list
 unbalanced_simulation_matrices <- 
@@ -348,16 +366,6 @@ unbalanced_simulation_matrices <-
 # Modify Design list
 design_info$X <- unbalanced_simulation_matrices$X
 design_info$design <- unbalanced_simulation_matrices$design
-
-
-# # Show overview of design
-# unbalanced_simulation_matrices$replicates %>%
-#   kbl(full_width="F",
-#       col.names = c("Treatment Group","Replicates in Group"),
-#       align="c")%>%
-#   kable_styling(full_width = F,
-#                 bootstrap_options = "striped",
-#                 position = "center")
 ```
 
 ## Plot Zero-inflation per zOTU
@@ -387,16 +395,12 @@ gen_long_response_df(unbalanced_simulation_matrices) %>%
                                    size=20,
                                    family="Times",
                                    rot=90)) %>%
-  ggexport(filename=paste0("../Images/",
-                         Sys.Date(),
-                         "_ZIGM_ASCA_Zero-inflation_per_zOTU.pdf"),
-         plot=.,
-         width = 6,
-         height= 6)
-
-
-
-
+  ggexport(filename=paste0(
+    output_dir,
+    "Zero-inflation_per_zOTU.pdf"),
+    plot=.,
+    width = 6,
+    height= 6)
 ```
 
 
@@ -406,21 +410,16 @@ gen_long_response_df(unbalanced_simulation_matrices) %>%
 # Fit GLMMs and Extract coefficients
 glmm_fit_results <- gen_long_response_df(unbalanced_simulation_matrices) %>%
   fit_glmm(long_response_df = .,
-           dist_family = "nbinom2",
-           zeroinfl = TRUE,
+           dist_family = design_info$family,
            cores=8) %>%
   extr_glmm_coef(model_df = .,
-                  zeroinfl = TRUE,
-                  family = "nbinom2",
-                  include_residuals = TRUE)
+                 family = design_info$family)
 
 # Perform 7-fold Jackknife
 glmm_jackknife_models <- fit_jackknife_models(glmm_fit_results,
-                                               design_info,
-                                              zeroinfl=TRUE)
+                                              design_info)
 glmm_jackknife_results <- process_jackknife_models(glmm_jackknife_models,
-                                                    design_info)
-
+                                                   design_info)
 
 
 # Modify Loadings into factors for later plotting
@@ -435,9 +434,9 @@ glmm_jackknife_results$Pab     <- arrange(glmm_jackknife_results$Pab,
                                           var,
                                           PC)
 ```
- 
- 
- 
+
+
+
 # Plot Jackknife results
 ## Plot Time Effect
 ```{r}
@@ -446,10 +445,10 @@ glmm_jackknife_results$Pab     <- arrange(glmm_jackknife_results$Pab,
 ggarrange(
   glmm_jackknife_results$Ta %>% 
     filter(PC==1) %>%
-      group_by(timepoint,treatment)%>%
-      mutate(quantile_025 = quantile(score,.025),
-             quantile_500 = quantile(score,.500),
-             quantile_975 = quantile(score,.975)) %>%
+    group_by(timepoint,treatment)%>%
+    mutate(quantile_025 = quantile(score,.025),
+           quantile_500 = quantile(score,.500),
+           quantile_975 = quantile(score,.975)) %>%
     # Initialize Plot
     ggplot(aes(x=timepoint,
                y=quantile_500))+
@@ -480,11 +479,11 @@ ggarrange(
   # LOADINGS PC1
   glmm_jackknife_results$Pa %>% 
     filter(PC==1)%>%
-      group_by(var)%>%
-      mutate(quantile_025 = quantile(loading,.025),
-             quantile_500 = quantile(loading,.500),
-             quantile_975 = quantile(loading,.975)) %>%
-      select(-loading)%>%
+    group_by(var)%>%
+    mutate(quantile_025 = quantile(loading,.025),
+           quantile_500 = quantile(loading,.500),
+           quantile_975 = quantile(loading,.975)) %>%
+    select(-loading)%>%
     distinct()%>%
     # Initialize Plot
     ggplot(aes(x=var,
@@ -497,7 +496,7 @@ ggarrange(
                       rep(teal,4)))+
     geom_point()+
     geom_errorbar(aes(ymin=quantile_025,
-                    ymax=quantile_975))+
+                      ymax=quantile_975))+
     # Modify Theme
     theme_classic(base_family="Times")+
     theme(plot.title=element_text(hjust=.5),
@@ -508,35 +507,35 @@ ggarrange(
          y = paste0("Loadings PC1 (",
                     filter(glmm_jackknife_results$perc_a,
                            PC==1)$perc_expl %>%
-                    quantile(.025) %>% 
+                      quantile(.025) %>% 
                       round(1) %>% 
                       format(nsmall=1),
                     "-",
                     filter(glmm_jackknife_results$perc_a,
                            PC==1)$perc_expl %>%
-                    quantile(.975) %>%  
+                      quantile(.975) %>%  
                       round(1) %>% 
                       format(nsmall=1),
                     "%)")),
   # SCORES PC2
   glmm_jackknife_results$Ta %>% 
-      filter(PC==2) %>%
-      group_by(timepoint,treatment)%>%
-      mutate(quantile_025 = quantile(score,.025),
-             quantile_500 = quantile(score,.500),
-             quantile_975 = quantile(score,.975)) %>%
+    filter(PC==2) %>%
+    group_by(timepoint,treatment)%>%
+    mutate(quantile_025 = quantile(score,.025),
+           quantile_500 = quantile(score,.500),
+           quantile_975 = quantile(score,.975)) %>%
     # Initialize Plot
     ggplot(aes(x=timepoint,
                y=quantile_500))+
     # Add Geometric Objects
     geom_point(size=5)+
     geom_errorbar(aes(ymin=quantile_025,
-                    ymax=quantile_975))+
+                      ymax=quantile_975))+
     # Modify Theme
     theme_classic(base_family="Times")+
     theme(plot.title=element_text(hjust=.5),
-        text=element_text(size=20),
-        aspect.ratio = 1)+
+          text=element_text(size=20),
+          aspect.ratio = 1)+
     # Add Labels
     labs(x="Timepoint",
          y=paste0("Scores PC2 (",
@@ -555,11 +554,11 @@ ggarrange(
   # LOADINGS PC2
   glmm_jackknife_results$Pa %>% 
     filter(PC==2)%>%
-      group_by(var)%>%
-      mutate(quantile_025 = quantile(loading,.025),
-             quantile_500 = quantile(loading,.500),
-             quantile_975 = quantile(loading,.975)) %>%
-      select(-loading)%>%
+    group_by(var)%>%
+    mutate(quantile_025 = quantile(loading,.025),
+           quantile_500 = quantile(loading,.500),
+           quantile_975 = quantile(loading,.975)) %>%
+    select(-loading)%>%
     distinct()%>%
     # Initialize Plot
     ggplot(aes(x=var,
@@ -600,36 +599,28 @@ ggarrange(
   annotate_figure(top=text_grob("Time Effect (A)",
                                 family = "Times",
                                 size=30)) %>%
-  ggexport(filename=paste0("../Images/",
-                         Sys.Date(),
-                         "_A_",
-                         design_info$prob_zero,
-                         "_REP_",
-                         design_info$n_subjects,
-                         ".pdf"),
-         plot=.,
-         width = 8,
-         height= 8)
-```
+  ggexport(filename=paste0(output_dir,
+                           "Time_Estimated.pdf"),
+           plot=.,
+           width = 8,
+           height= 8)
 
-## Plot Time-Treatment Interaction
-```{r}
 # Time-Treatment Interaction
 ggarrange(
   # SCORES PC1
   glmm_jackknife_results$Tab %>% 
-      filter(PC==1) %>%
-      group_by(timepoint,treatment)%>%
-      mutate(quantile_025 = quantile(score,.025),
-             quantile_500 = quantile(score,.500),
-             quantile_975 = quantile(score,.975)) %>%
+    filter(PC==1) %>%
+    group_by(timepoint,treatment)%>%
+    mutate(quantile_025 = quantile(score,.025),
+           quantile_500 = quantile(score,.500),
+           quantile_975 = quantile(score,.975)) %>%
     ggplot(aes(x=timepoint,
                y=-quantile_500,
                color=treatment))+
     geom_point(size=5)+
     geom_line(aes(group=treatment))+
     geom_errorbar(aes(ymin=-quantile_975,
-                    ymax=-quantile_025))+
+                      ymax=-quantile_025))+
     theme_classic(base_family="Times")+
     labs(x="Timepoint",
          y=paste0("Scores PC1 (",
@@ -639,54 +630,54 @@ ggarrange(
                   "%)"),
          color="Treatment Group")+
     theme(plot.title=element_text(hjust=.5),
-        text=element_text(size=20),
-        aspect.ratio = 1)+
+          text=element_text(size=20),
+          aspect.ratio = 1)+
     scale_color_viridis_d(),
   # LOADINGS PC1
   glmm_jackknife_results$Pab %>% 
     filter(PC==1)%>%
-      group_by(var)%>%
-      mutate(quantile_025 = quantile(loading,.025),
-             quantile_500 = quantile(loading,.500),
-             quantile_975 = quantile(loading,.975)) %>%
-      select(-loading)%>%
+    group_by(var)%>%
+    mutate(quantile_025 = quantile(loading,.025),
+           quantile_500 = quantile(loading,.500),
+           quantile_975 = quantile(loading,.975)) %>%
+    select(-loading)%>%
     distinct()%>%
-  ggplot(aes(x=var,
-             y=-quantile_500))+
-  geom_bar(stat="identity",
-           fill = c(rep(teal,4),rep(dark_purple,8),rep(teal,4)))+
-  geom_point()+
-  geom_errorbar(aes(ymin=-quantile_975,
-                    ymax=-quantile_025))+
-  theme_classic(base_family="Times")+
-  labs(x = "Variable",
-       y=paste0("Loadings PC1 (",
+    ggplot(aes(x=var,
+               y=-quantile_500))+
+    geom_bar(stat="identity",
+             fill = c(rep(teal,4),rep(dark_purple,8),rep(teal,4)))+
+    geom_point()+
+    geom_errorbar(aes(ymin=-quantile_975,
+                      ymax=-quantile_025))+
+    theme_classic(base_family="Times")+
+    labs(x = "Variable",
+         y=paste0("Loadings PC1 (",
                   filter(glmm_jackknife_results$perc_ab,PC==1)$perc_expl %>%                     quantile(.025) %>%  
-                  round(1) %>% 
-                  format(nsmall=1),
+                    round(1) %>% 
+                    format(nsmall=1),
                   "-",
                   filter(glmm_jackknife_results$perc_ab,PC==1)$perc_expl %>%                     quantile(.975) %>%  
-                  round(1) %>% 
-                  format(nsmall=1),
+                    round(1) %>% 
+                    format(nsmall=1),
                   "%)"))+
-  theme(plot.title=element_text(hjust=.5),
-        text=element_text(size=20),
-        aspect.ratio = 1),
+    theme(plot.title=element_text(hjust=.5),
+          text=element_text(size=20),
+          aspect.ratio = 1),
   # SCORES PC2
   glmm_jackknife_results$Tab %>% 
     
-      filter(PC==2) %>%
-      group_by(timepoint,treatment)%>%
-      mutate(quantile_025 = -quantile(score,.975),
-             quantile_500 = -quantile(score,.500),
-             quantile_975 = -quantile(score,.025)) %>%
+    filter(PC==2) %>%
+    group_by(timepoint,treatment)%>%
+    mutate(quantile_025 = -quantile(score,.025),
+           quantile_500 = -quantile(score,.500),
+           quantile_975 = -quantile(score,.975)) %>%
     ggplot(aes(x=timepoint,
                y=quantile_500,
                color=treatment))+
     geom_point(size=5)+
     geom_line(aes(group=treatment))+
     geom_errorbar(aes(ymin=quantile_025,
-                    ymax=quantile_975))+
+                      ymax=quantile_975))+
     theme_classic(base_family="Times")+
     labs(x="Timepoint",
          y=paste0("Scores PC2 (",
@@ -694,36 +685,42 @@ ggarrange(
                   "-",
                   filter(glmm_jackknife_results$perc_ab,PC==2)$perc_expl %>%                     quantile(.975) %>%  round(1) %>% format(nsmall=1),
                   "%)"),
-       color = "Treatment Group")+
+         color = "Treatment Group")+
     theme(plot.title=element_text(hjust=.5),
-        text=element_text(size=20),
-        aspect.ratio = 1)+
+          text=element_text(size=20),
+          aspect.ratio = 1)+
     scale_color_viridis_d(),
   # LOADINGS PC2
   glmm_jackknife_results$Pab %>% filter(PC==2)%>%
-      group_by(var)%>%
-      mutate(quantile_025 = -quantile(loading,.975),
-             quantile_500 = -quantile(loading,.500),
-             quantile_975 = -quantile(loading,.025)) %>%
-      select(-loading)%>%
+    group_by(var)%>%
+    mutate(quantile_025 = -quantile(loading,.025),
+           quantile_500 = -quantile(loading,.500),
+           quantile_975 = -quantile(loading,.975)) %>%
+    select(-loading)%>%
     distinct()%>%
-  ggplot(aes(x=var,
-             y=quantile_500))+
-  geom_bar(stat="identity",
-           fill = c(rep(teal,4),rep(dark_purple,8),rep(teal,4)))+
-  geom_point()+
-  geom_errorbar(aes(ymin=quantile_025,
-                    ymax=quantile_975))+
-  theme_classic(base_family="Times")+
-  labs(x = "Variable",
-       y=paste0("Loadings PC2 (",
-                  filter(glmm_jackknife_results$perc_ab,PC==2)$perc_expl %>%                     quantile(.025) %>%  round(1) %>% format(nsmall=1),
+    ggplot(aes(x=var,
+               y=quantile_500))+
+    geom_bar(stat="identity",
+             fill = c(rep(teal,4),rep(dark_purple,8),rep(teal,4)))+
+    geom_point()+
+    geom_errorbar(aes(ymin=quantile_025,
+                      ymax=quantile_975))+
+    theme_classic(base_family="Times")+
+    labs(x = "Variable",
+         y=paste0("Loadings PC2 (",
+                  filter(glmm_jackknife_results$perc_ab,PC==2)$perc_expl %>%
+                    quantile(.025) %>%  
+                    round(1) %>% 
+                    format(nsmall=1),
                   "-",
-                  filter(glmm_jackknife_results$perc_ab,PC==2)$perc_expl %>%                     quantile(.975) %>%  round(1) %>% format(nsmall=1),
+                  filter(glmm_jackknife_results$perc_ab,PC==2)$perc_expl %>%
+                    quantile(.975) %>%  
+                    round(1) %>% 
+                    format(nsmall=1),
                   "%)"))+
-  theme(plot.title=element_text(hjust=.5),
-        text=element_text(size=20),
-        aspect.ratio = 1),
+    theme(plot.title=element_text(hjust=.5),
+          text=element_text(size=20),
+          aspect.ratio = 1),
   # Plot settings
   ncol=2,
   nrow=2,
@@ -732,10 +729,13 @@ ggarrange(
   annotate_figure(top=text_grob("Interaction Effect (AB)",
                                 family="Times",
                                 size=30)) %>%
-  ggexport(filename=paste0("../Images/",Sys.Date(),"_AB_",design_info$prob_zero,"_REP_",design_info$n_subjects,".pdf"),
-         plot=.,
-         width = 8,
-         height= 8)
+  ggexport(filename=paste0(
+    output_dir,
+    "Interaction_Estimated.pdf"
+  ),
+  plot=.,
+  width = 8,
+  height= 8)
 ```
 
 End of Simulation

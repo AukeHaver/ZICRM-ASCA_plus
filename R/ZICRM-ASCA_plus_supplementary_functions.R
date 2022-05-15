@@ -4,21 +4,23 @@
 ### Project: Zero-inflated GLMM ASCA
 ### Date 21-06-2021
 
-# LOAD PACKAGES (modified 03-06-2021)
+# LOAD PACKAGES 
 library("tidyverse") # For 
 library("kableExtra") # For tables
 library("ggpubr") # Extension on ggplot2
 library("vegan") # Orthogonal procrustus rotation
 library("glmmTMB") # zero-inflated GLMM fitting
-library("DHARMa") # Residual analysis 
+library("broom")
+#library("DHARMa") # Residual analysis 
+library("parallel")
 library("furrr") # Multi-core processing
 
-# Virids color objects (modified 03-06-2021)
+# Virids color objects 
 dark_purple <- rgb(72/255,40/255,120/255)
 teal <- rgb(38/255,130/255,142/255)
 
 
-# FUNCTION FOR SIMULATION INFO (modified 03-06-2021)
+# FUNCTION FOR SIMULATION INFO 
 # Generates list with design description
 # Used in later functions
 gen_sim_info <- function(n_treatments,
@@ -31,6 +33,7 @@ gen_sim_info <- function(n_treatments,
                          n_dummy_replicates,
                          family,
                          prob_zero,
+                         sigma,
                          jackknife_folds){
   output <- list()
   output$n_timepoints       <- n_timepoints # Number of levels in time
@@ -42,17 +45,18 @@ gen_sim_info <- function(n_treatments,
   output$variables          <- LETTERS[1:n_variables] # Levels of Variables
   output$n_subjects         <- n_subjects   # Number of subjects
   output$n_dummy_replicates <- n_dummy_replicates # Dummy replicates
-                                                         # For unbalanced design
+  # For unbalanced design
   output$n_observations     <- prod(n_timepoints,
                                     n_treatments,
                                     n_dummy_replicates)
   output$family             <- family
   output$prob_zero          <- prob_zero
+  output$sigma               <- sigma
   output$jackknife_folds    <- jackknife_folds
   return(output)
 }
 
-# MAKE DESIGN DATAFRAME FOR SIMULATION (modified 03-06-2021)
+# MAKE DESIGN DATAFRAME FOR SIMULATION 
 # Generates balanced design for simulation
 # Used sum-coding for contrasts
 # Columns are ordered timepoint -> treatment 
@@ -80,7 +84,7 @@ gen_sim_design <- function(design_info_list){
   contrasts(output_df$treatment) <- contr.sum(design_info_list$n_treatments)
   return(output_df)}
 
-# SIMULATE FIXED PARAMETER MATRIX (modified 03-06-2021)
+# SIMULATE FIXED PARAMETER MATRIX 
 # Simulate a fixed parameter matrix with 2 effects and their interactions
 simulate_fixed_param_matrix <- function(
   levels = c(3,4), # The levels for each effects (e.g. 3 timepoints and 4 treatments )
@@ -109,7 +113,7 @@ simulate_fixed_param_matrix <- function(
     out<-c(out,AB)}
   return(matrix(rep(out,each=replicates),nrow=prod(levels)*replicates))}
 
-# FUNCTION FOR MATRIX COMPOSITION (modified 03-06-2021)
+# FUNCTION FOR MATRIX COMPOSITION 
 compose_matrices <- function(design_info_list,
                              function_seed = 1,
                              mu = 5,
@@ -156,20 +160,20 @@ compose_matrices <- function(design_info_list,
   return(output)
 }
 
-# RESPONSE MATRIX FUNCTION FOR DIFFERENT DISTRIBUTIONS  (modified 03-06-2021)
+# RESPONSE MATRIX FUNCTION FOR DIFFERENT DISTRIBUTIONS 
 # Function for generation of a response matrix with a certain distribution
 # current distributions: Poisson, Zero-inflated Poisson, Negative Binomial, Zero-inflated Negative Binomial
 # FUNCTION FOR SAMPLING FROM EXPONENTIAL FAMILY
 generate_response_matrix <- function(input_matrix,
                                      type = "pois",
-                                     disp = NULL,
+                                     sigma = NULL,
                                      prob_str_0 = NULL){
   if(type == "pois"){ # Poisson Distribution
     return(input_matrix %>%
              exp() %>%
              matrix(ncol=ncol(input_matrix)) %>%
              sapply(function(x){stats::rpois(n=1,
-                                      lambda=x)}) %>% 
+                                             lambda=x)}) %>% 
              matrix(ncol=ncol(input_matrix)))
   }
   else if(type == "zipois"){ # Zero-inflated Poisson Distribution
@@ -177,33 +181,34 @@ generate_response_matrix <- function(input_matrix,
              exp() %>%
              matrix(ncol=ncol(input_matrix)) %>%
              sapply(function(x){VGAM::rzipois(n=1,
-                                        lambda=x,
-                                        pstr0=prob_str_0)}) %>% 
+                                              lambda=x,
+                                              pstr0=prob_str_0)}) %>% 
              matrix(ncol=ncol(input_matrix)))
   }
   else if(type == "nbinom"){ # Not currently working
     return(input_matrix %>%
              exp() %>%
              matrix(ncol=ncol(input_matrix)) %>%
-             sapply(function(x){MASS::rnegbin(n=1,
-                                        mu=x,
-                                        theta=disp)}) %>% 
+             sapply(function(x){stats::rnbinom(
+               n=1,
+               mu=x,
+               size=sigma)}) %>% 
              matrix(ncol=ncol(input_matrix)))
   }
-  else if(type == "zinbinom"){ # Not currently working
+  else if(type == "zinbinom"){ # Appears to be working
     return(input_matrix %>%
              exp() %>%
              matrix(ncol=ncol(input_matrix)) %>%
-             sapply(function(x){VGAM::rzinegbin(n=1,
-                                      size = disp,
-                                      prob = NULL,
-                                      pstr0 = prob_str_0,
-                                      munb=x)}) %>% 
+             sapply(function(x){VGAM::rzinegbin(
+               n=1,
+               size = sigma,
+               pstr0 = prob_str_0,
+               munb=x)}) %>% 
              matrix(ncol=ncol(input_matrix)))
   }
 }
 
-# GENERATE SIMULATION SUBSET MATRICES (modified 03-06-2021)
+# GENERATE SIMULATION SUBSET MATRICES 
 # Function For Unbalancing datasets
 gen_sim_sub_matrices <- function(design_info_list,
                                  matrix_of_design,
@@ -217,9 +222,9 @@ gen_sim_sub_matrices <- function(design_info_list,
   output <- list()
   # Subsample population size from all dummy replicates, store ID
   subset_subjects <- sample(prod(design_info_list$n_dummy_replicates,
-                                        design_info_list$n_treatments),
-                                   design_info_list$n_subjects,
-                                   replace=FALSE) %>% 
+                                 design_info_list$n_treatments),
+                            design_info_list$n_subjects,
+                            replace=FALSE) %>% 
     sort()
   # Make object to store observation for each ID
   subset_observations <- vector(mode="integer")
@@ -227,7 +232,7 @@ gen_sim_sub_matrices <- function(design_info_list,
     subset_observations <-
       c(subset_observations, 
         subset_subjects + (i-1)*prod(design_info_list$n_dummy_replicates,
-                                            design_info_list$n_treatments))}
+                                     design_info_list$n_treatments))}
   # Unbalance simulation matrices (this could be a seperate function)
   output$response <- response_matrix[subset_observations,]
   output$M0 <- simulation_matrices$M0[subset_observations,]
@@ -246,33 +251,41 @@ gen_sim_sub_matrices <- function(design_info_list,
   return(output)
 }
 
-# MUTLICORE GLMM FITTING FUNCTION (modified 21-06-2021)
+# MUTLICORE GLMM FITTING FUNCTION 
 # Function for fitting (zero-inflated) Poisson or NB GLMMS 
 # Includes skip for failed models
 fit_glmm <- function(long_response_df,
-                      dist_family = "nbinom2",
-                      zeroinfl = TRUE,
-                      cores = 1){
+                     dist_family,
+                     cores = 1){
   plan(multisession, workers = cores)
-  
-  if(zeroinfl){
+  if(dist_family %in% c("zipois", "zinbinom")){
+    if(dist_family == "zipois"){
+      family <- "poisson"
+    } else {
+      family <- "nbinom2"
+    }
     return(long_response_df %>%
              group_by(zOTU)%>%
              group_nest() %>%
              mutate(model = future_map(data,possibly(function(x)
                glmmTMB(count ~ timepoint + timepoint:treatment+(1|subject),
-                       family = dist_family,
+                       family = family,
                        data=x,
                        ziformula = ~1,
                        REML = TRUE),
                otherwise=NA))))
-  } else {
+  } else if(dist_family %in% c("pois", "nbinom")) {
+    if(dist_family == "zipois"){
+      family <- "poisson"
+    } else {
+      family <- "nbinom2"
+    }
     return(long_response_df %>%
              group_by(zOTU)%>%
              group_nest() %>%
              mutate(model = future_map(data,possibly(function(x)
                glmmTMB(count ~ timepoint + timepoint:treatment+(1|subject),
-                       family = dist_family,
+                       family = family,
                        data=x,
                        REML = TRUE),
                otherwise=NA))))
@@ -280,7 +293,7 @@ fit_glmm <- function(long_response_df,
 }
 
 
-# GENERATE LONG RESPONSE DATAFRAME (modified 03-06-2021)
+# GENERATE LONG RESPONSE DATAFRAME 
 # Function for generating long-pivoted response dataframe from matrix list
 gen_long_response_df <- function(matrix_list){
   return(cbind(matrix_list$design,
@@ -296,68 +309,59 @@ gen_long_response_df <- function(matrix_list){
 
 
 
-# EXTRACT GLMM COEF MULTICORE FROM glmmTMB (modified 21-06-2021)
+# EXTRACT GLMM COEF MULTICORE FROM glmmTMB 
 # Currently only working for zero_inflated negative binomial
 extr_glmm_coef <- function(model_df,
-                            zeroinfl = TRUE,
-                            family = "nbinom2",
-                            include_residuals = FALSE){
-  if(family =="nbinom2"){
+                           family){
+  if(family %in% c("zinbinom", "nbinom")){
     output<- model_df %>%
-              mutate(
-                # Conditional Fixed Effects
-                fixed_cond = map(model,
-                                        possibly(function(x) fixef(x)$cond,
-                                                 otherwise = NA)),
-                # Zero-inflated Fixed Effects 
-                fixed_zi = map(model,
-                                      possibly(function(x) fixef(x)$zi,
-                                               otherwise=NA)),
-                # Random effects
-                random = map(model,
-                                    possibly(function(x) ranef(x)$cond$subject[,1],
-                                             otherwise=NA)),
-                # Dispersion Parameter
-                disp = map(model,
-                                  possibly(function(x) summary(x)$sigma,
-                                           otherwise=NA)) %>% unlist(),
-                # Posterior zero-inflation parameter
-                # Summary value requires reverse logit link exp(x)/(1+exp(x))
-                zi_prob = map(model,
-                                     possibly(function(x) exp(x$fit$par[1])/(1+exp(x$fit$par[1])),
-                                              otherwise = NA)))}
-  else if(family =="poisson"){
-    output<- model_df %>%
-              mutate(
-                # Conditional Fixed Effects
-                fixed_cond = map(model,
-                                 possibly(function(x) fixef(x)$cond,
-                                          otherwise = NA)),
-                # Zero-inflated Fixed Effects 
-                fixed_zi = map(model,
-                               possibly(function(x) fixef(x)$zi,
-                                        otherwise=NA)),
-                # Random effects
-                random = map(model,
-                             possibly(function(x) ranef(x)$cond$subject[,1],
-                                      otherwise=NA)),
-                # Posterior zero-inflation parameter
-                # Summary value requires reverse logit link exp(x)/(1+exp(x))
-                zi_prob = map(model,
-                              possibly(function(x) exp(x$fit$par[1])/(1+exp(x$fit$par[1])),
-                                       otherwise = NA)))}
-  if(include_residuals){
-    output <- output %>%
       mutate(
-        # Simulated residuals
-        resids = map(model,
-                     possibly(function(x)  simulateResiduals(x)$scaledResiduals,
-                              otherwise=NA)))}
+        # Conditional Fixed Effects
+        fixed_cond = map(model,
+                         possibly(function(x) fixef(x)$cond,
+                                  otherwise = NA)),
+        # Zero-inflated Fixed Effects 
+        fixed_zi = map(model,
+                       possibly(function(x) fixef(x)$zi,
+                                otherwise=NA)),
+        # Random effects
+        random = map(model,
+                     possibly(function(x) ranef(x)$cond$subject[,1],
+                              otherwise=NA)),
+        # Dispersion Parameter
+        sigma = map(model,
+                   possibly(function(x) summary(x)$sigma,
+                            otherwise=NA)) %>% unlist(),
+        # Posterior zero-inflation parameter
+        # Summary value requires reverse logit link exp(x)/(1+exp(x))
+        zi_prob = map(model,
+                      possibly(function(x) exp(x$fit$par[1])/(1+exp(x$fit$par[1])),
+                               otherwise = NA)))}
+  else if(family %in% c("pois","zipois")){
+    output<- model_df %>%
+      mutate(
+        # Conditional Fixed Effects
+        fixed_cond = map(model,
+                         possibly(function(x) fixef(x)$cond,
+                                  otherwise = NA)),
+        # Zero-inflated Fixed Effects 
+        fixed_zi = map(model,
+                       possibly(function(x) fixef(x)$zi,
+                                otherwise=NA)),
+        # Random effects
+        random = map(model,
+                     possibly(function(x) ranef(x)$cond$subject[,1],
+                              otherwise=NA)),
+        # Posterior zero-inflation parameter
+        # Summary value requires reverse logit link exp(x)/(1+exp(x))
+        zi_prob = map(model,
+                      possibly(function(x) exp(x$fit$par[1])/(1+exp(x$fit$par[1])),
+                               otherwise = NA)))}
   return(output)
 }
 
 
-# PERFORM PCA (modified 03-06-2021)
+# PERFORM PCA 
 # Return scores, loadings and singular values of singular value decomposition (SVD)
 # For a Principal Component Analysis (PCA).
 perform_pca <- function(input_matrix){
@@ -369,15 +373,15 @@ perform_pca <- function(input_matrix){
   return(output)
 }
 
-# PERFORM PCA ON EFFECT MATRICES (modified 03-06-2021)
+# PERFORM PCA ON EFFECT MATRICES 
 # performs an apply of pca function on all elements of effect matrix list
 pca_effect_matrices <- function(glmm_efmat_list){
   return(lapply(glmm_efmat_list,
                 FUN="col_center")%>%
-    lapply(FUN="perform_pca"))}
+           lapply(FUN="perform_pca"))}
 
 
-# CALCULATE EXPLAINED VARIANCE FROM SINGULAR VALUES (modified 03-06-2021)
+# CALCULATE EXPLAINED VARIANCE FROM SINGULAR VALUES 
 expl_var_from_svd <- function(singular_values,
                               decimals = 1){
   return(round(singular_values^2/sum(singular_values^2)*100,decimals))
@@ -452,7 +456,7 @@ generate_interaction_matrix <- function(n_levels_A,n_levels_B){
     interaction_matrix[row_start:row_stop,col_start:col_stop] <- contr.sum(n_levels_B)
   }
   return(interaction_matrix)}
-  
+
 
 
 # Orthogonal procrustes rotation
@@ -461,7 +465,7 @@ orthprocr_pca <- function(target,query){
   sol$loadings <- cds::orthprocr(Z = target$loadings,
                                  X = query$loadings)$XQ
   sol$scores <- sol$scores %*% (cds::orthprocr(Z = target$loadings,
-                                             X = query$loadings)$Q %>% solve())
+                                               X = query$loadings)$Q %>% solve())
   #sol$scores <- sol$scores * solve(sol$loadings)
   return(sol)
 }
@@ -505,13 +509,11 @@ pca_df_for_plot <- function(pca_object, # a list containing scores and loadings 
   return(df_list)
 }
 
-# PERFORM GLMM JACKKNIFE (modified 15-05-2021)
+# PERFORM GLMM JACKKNIFE 
 # long function with hard-coded options
 # could require improvements
 fit_jackknife_models <- function(fitted_models, # Fitted models on full dataset
-                                 design_info_list,
-                                 dist_family = "nbinom2",
-                                 zeroinfl = TRUE){   # design info
+                                 design_info_list){   # design info
   
   # Recreate data from fitted models
   original_data <- do.call("rbind",fitted_models$data) %>%
@@ -549,78 +551,10 @@ fit_jackknife_models <- function(fitted_models, # Fitted models on full dataset
       data_with_subgroups %>% 
       filter(!subgroup==i) %>%
       fit_glmm(long_response_df = .,
-                dist_family = dist_family,
-                zeroinfl = zeroinfl,
-                cores=8)%>%
-      extr_glmm_coef(model_df = .,
-                     zeroinfl = zeroinfl,
-                     family = dist_family) %>% 
-      filter(!is.na(model)) %>%
-      select(-c(model,data))
-    jackknife_zOTUs[[i]]<- jackknife_models[[i]]$zOTU
-    print(paste0("fold ",i," finished in ",format(Sys.time()-fold_start_time, digits=2)))
-  }
-  # Make a list of zOTUs which were succesfully fitted in each fold
-  shared_fitted_zOTUs <- Reduce(intersect,jackknife_zOTUs)
-  
-  output <- list()
-  output$zOTUs <- shared_fitted_zOTUs
-  output$models<- jackknife_models
-  output$full_model <- fitted_models
-  output$subject_groups <- subject_group_df
-  return(output)}
-
-
-# PERFORM GLMM JACKKNIFE (modified 15-05-2021)
-# long function with hard-coded options
-# could require improvements
-fit_jackknife_models <- function(fitted_models, # Fitted models on full dataset
-                                 design_info_list,
-                                 dist_family = "nbinom2",
-                                 zeroinfl = TRUE){   # design info
-  
-  # Recreate data from fitted models
-  original_data <- do.call("rbind",fitted_models$data) %>%
-    mutate(zOTU = rep(fitted_models$zOTU, each = nrow(fitted_models$data[[1]]))) %>%
-    arrange(timepoint,treatment,subject)
-  contrasts(original_data$timepoint) <- contr.sum(n_distinct(original_data$timepoint))
-  contrasts(original_data$treatment) <- contr.sum(n_distinct(original_data$treatment))
-  
-  # Make a dataframe for assigning group labels to each subject
-  subject_group_df <- 
-    # subjects have the same ID as before
-    tibble(subject = original_data$subject %>% unique(),
-           subgroup = generate_resampling_groups(original_data %>%
-                                                   select(subject,treatment) %>%
-                                                   distinct()%>%
-                                                   group_by(treatment)%>%
-                                                   summarize(replicates = n()) %>%
-                                                   pull("replicates"),
-                                                 folds = design_info_list$jackknife_folds))
-  # Create list to store models
-  jackknife_models <- list()
-  jackknife_zOTUs  <- list()
-  jackknife_PCA <- list()
-  jackknife_res <- list()
-  # Add subgroup info to original data
-  data_with_subgroups <- original_data %>%
-    left_join(subject_group_df,
-              by="subject") 
-  # Iterate over jackknife folds
-  for(i in 1:design_info_list$jackknife_folds
-  ){
-    print(paste0("starting fold ",i))
-    fold_start_time <- Sys.time()
-    jackknife_models[[i]]<-
-      data_with_subgroups %>% 
-      filter(!subgroup==i) %>%
-      fit_glmm(long_response_df = .,
-               dist_family = "nbinom2",
-               zeroinfl = TRUE,
+               design_info_list$family,
                cores=8)%>%
       extr_glmm_coef(model_df = .,
-                     zeroinfl = TRUE,
-                     family = "nbinom2") %>% 
+                     design_info_list$family) %>% 
       filter(!is.na(model)) %>%
       select(-c(model,data))
     jackknife_zOTUs[[i]]<- jackknife_models[[i]]$zOTU
@@ -781,7 +715,7 @@ process_jackknife_models <- function(jackknife_models_list,
   jackknife_res$reference <- reference_pca
   return(jackknife_res)}
 
-# COMPOSE EFFECT MATRICES FROM COEFFICIENTS (Modified 15-05-2021)
+# COMPOSE EFFECT MATRICES FROM COEFFICIENTS 
 # Currently very-much hard-coded
 # Integration of effects in design info list could allow for broader analysis
 comp_mat_from_coef <- function(glmm_results_df,  # List with GLMM fit results
