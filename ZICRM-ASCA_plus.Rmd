@@ -7,7 +7,10 @@ output: pdf_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-source("R/ZICRM-ASCA_plus_supplementary_functions.R",local=TRUE)
+source("R/packages.R",local=TRUE)
+source("R/simulation.R",local=TRUE)
+source("R/analysis.R",local=TRUE)
+ncores = detectCores()
 ```
 
 # Introduction
@@ -31,9 +34,9 @@ design_info <- gen_sim_info(n_treatments       = 5,
                             n_variables        = 16,
                             n_subjects         = 208,
                             n_dummy_replicates = 300,
-                            family             = "nbinom", # choose pois, zipois, nbinom, zibinom
+                            family             = "zinbinom", # choose pois, zipois, nbinom, zinbinom
                             prob_zero          = 0.50,
-                            sigma               = 1,
+                            sigma               = 10,
                             jackknife_fold     = 7) 
 
 # Generate Design Matrix
@@ -374,8 +377,10 @@ gen_long_response_df(unbalanced_simulation_matrices) %>%
   mutate(var=zOTU)%>%
   group_by(zOTU)%>%
   group_nest()%>%
-  mutate(plot = map(data,
-                    function(x) x %>%
+  mutate(
+    plot = mclapply(
+      X = data,
+      FUN = function(x) x %>%
                       ggplot(aes(x=count))+
                       geom_histogram(bins=15)+
                       theme_classic(base_family="Times",
@@ -383,18 +388,24 @@ gen_long_response_df(unbalanced_simulation_matrices) %>%
                       theme(axis.text.x = element_text(angle=45,
                                                        hjust=1))+
                       labs(x=element_blank(),
-                           y=element_blank()))) %>%
+                           y=element_blank()),
+      mc.cores = ncores)) %>%
   pull("plot") %>%
   ggarrange(plotlist=.,
             ncol=4,
             nrow=4,
             labels="AUTO",
             label.x=.75)%>%
-  annotate_figure(bottom = text_grob("zOTU Count",family = "Times",size=20),
-                  left = text_grob("Frequency (counts)",
-                                   size=20,
-                                   family="Times",
-                                   rot=90)) %>%
+  annotate_figure(
+    bottom = text_grob(
+      "zOTU Count",
+      family = "Times",
+      size=20
+      ),
+    left = text_grob("Frequency (counts)",
+                     size=20,
+                     family="Times",
+                     rot=90)) %>%
   ggexport(filename=paste0(
     output_dir,
     "Zero-inflation_per_zOTU.pdf"),
@@ -409,30 +420,28 @@ gen_long_response_df(unbalanced_simulation_matrices) %>%
 ```{r GLMM ASCA with Jackknife}
 # Fit GLMMs and Extract coefficients
 glmm_fit_results <- gen_long_response_df(unbalanced_simulation_matrices) %>%
-  fit_glmm(long_response_df = .,
-           dist_family = design_info$family,
-           cores=8) %>%
-  extr_glmm_coef(model_df = .,
-                 family = design_info$family)
+  fit_glmm(
+    long_response_df = .,
+    dist_family = design_info$family,
+    cores=ncores
+  ) %>%
+  extr_glmm_coef(
+    model_df = .,
+    family = design_info$family,
+    cores = ncores)
+```
 
+# Perfrom ZIGLMM with jackknife resampling
+```{r}
 # Perform 7-fold Jackknife
-glmm_jackknife_models <- fit_jackknife_models(glmm_fit_results,
-                                              design_info)
-glmm_jackknife_results <- process_jackknife_models(glmm_jackknife_models,
-                                                   design_info)
-
-
-# Modify Loadings into factors for later plotting
-glmm_jackknife_results$Pa$var  <- factor(glmm_jackknife_results$Pa$var,
-                                         levels=seq(1:16))
-glmm_jackknife_results$Pa      <- arrange(glmm_jackknife_results$Pa,
-                                          var,
-                                          PC)
-glmm_jackknife_results$Pab$var <- factor(glmm_jackknife_results$Pab$var,
-                                         levels=seq(1:16))
-glmm_jackknife_results$Pab     <- arrange(glmm_jackknife_results$Pab,
-                                          var,
-                                          PC)
+glmm_jackknife_models <- fit_jackknife_models(
+  glmm_fit_results,
+  design_info,
+  cores = ncores)
+glmm_jackknife_results <- process_jackknife_models(
+  glmm_jackknife_models,
+  design_info
+  )
 ```
 
 
