@@ -128,16 +128,21 @@ compose_matrices <- function(design_info_list,
     output$logYhat <- output$logYhat + output$Mab}
   # Subject Effect
   if(include_subject){
+    temp_list <- list()
     output$Ms <- vector(mode="numeric")
-    for(i in 1:prod(design_info_list$n_variables,
-                    design_info_list$n_timepoints,
-                    design_info_list$n_treatments)){
+    for(i in 1:design_info_list$n_variables){
       output$Ms <- c(output$Ms,
-                     MASS::mvrnorm(design_info_list$n_dummy_replicates,
+                     MASS::mvrnorm(prod(
+                       design_info_list$n_dummy_replicates,
+                       design_info_list$n_treatments),
                                    empirical = TRUE,
                                    Sigma=subject_Sigma,
                                    mu=subject_mu))}
     output$Ms <- matrix(output$Ms,ncol=design_info_list$n_variables)
+    for(i in 1:design_info_list$n_timepoint){
+      temp_list[[i]] <- output$Ms
+    }
+    output$Ms <- do.call("rbind", temp_list)
     output$logYhat <- output$logYhat + output$Ms
   }
   return(output)
