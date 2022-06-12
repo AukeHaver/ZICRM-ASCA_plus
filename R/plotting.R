@@ -1,3 +1,8 @@
+### ZICRM-ASCA+ plotting
+### Author: Auke Haver
+### BDA GROUP SILS Amsterdam
+### Project: Zero-inflated GLMM ASCA
+
 plot_simulated_time_scores <- function(design_matrix, score_matrix, expl_var, component){
   ggplot() +
     geom_point(
