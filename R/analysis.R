@@ -1,8 +1,8 @@
-### ZICRM-ASCA+ supplementary Functions
+### ZICRM-ASCA+ analysis
 ### Author: Auke Haver
 ### BDA GROUP SILS Amsterdam
 ### Project: Zero-inflated GLMM ASCA
-### Date 
+
 # MUTLICORE GLMM FITTING FUNCTION 
 # Function for fitting (zero-inflated) Poisson or NB GLMMS 
 # Includes skip for failed models
@@ -199,18 +199,6 @@ ssq <- function(number_matrix){
   return(sum(number_matrix^2))
 }
 
-# Turn a matrix into a long tibble
-param_matrix_to_long_tibble <- function(matrix){
-  return(matrix %>% 
-           as_tibble() %>%
-           pivot_longer(cols = colnames(matrix),
-                        names_to = "variable",
-                        values_to = "param_value") %>%
-           group_by(variable) %>%
-           mutate(parameter = row_number(),
-                  variable = gsub("variable_","",variable)%>% factor()) %>%
-           ungroup())
-}
 # Column-center a matrix
 col_center <- function(data_matrix){
   return(sweep(x      = data_matrix,
@@ -225,14 +213,6 @@ unit_vector <- function(input_vector){
 }
 
 
-# Extract unique scores from matrix (rounded to 10 decimals)
-unique_loadings<- function(PCA_res){
-  return(
-    unique(
-      round(PCA_res$loadings,10)))
-}
-
-
 # Function to generate resampling groups
 # Population_size = input list of treatment group sizes
 # Folds = input vector of number of resampling folds
@@ -244,23 +224,6 @@ generate_resampling_groups<- function(population_size,folds){
   }
   return(group_labels)
 }
-
-
-# Function for generation of a sum-coded interaction matrix
-generate_interaction_matrix <- function(n_levels_A,n_levels_B){
-  sum_interactions <- n_levels_A * n_levels_B
-  coded_interactions <- (n_levels_B-1)*n_levels_A
-  interaction_matrix <- matrix(data=rep(0,sum_interactions*coded_interactions),
-                               ncol = coded_interactions)
-  for(i in 1:n_levels_A){
-    row_start <- n_levels_B*(i-1)+1
-    row_stop  <- n_levels_B*i
-    col_start <- (n_levels_B-1)*(i-1)+1
-    col_stop  <- (n_levels_B-1)*i
-    interaction_matrix[row_start:row_stop,col_start:col_stop] <- contr.sum(n_levels_B)
-  }
-  return(interaction_matrix)}
-
 
 #Orthogonal procrustes rotation with VEGAN (RETURNS POOR ROTATION)
 # orthprocr_pca <- function(target,query, n_comp){
@@ -285,44 +248,6 @@ orthprocr_pca <- function(target,query, n_comp){
   return(sol)
 }
 
-# PCA PLOT TIBBLE FUNCTION - edited 14-05-2021
-## Function for making long tibbles for PCA plots
-pca_df_for_plot <- function(pca_object, # a list containing scores and loadings matrices and singular values
-                            design_df, # a dataframe with design specifics
-                            variable_list # a list of variables corresponding to the loadings
-){
-  df_list <- list()
-  # SCORES
-  df_list$scores <-
-    # Make dataframe with design and specified components
-    cbind(design_df,
-          pca_object$scores) %>%
-    # Pivot into long table
-    pivot_longer(cols=!colnames(design_df),
-                 names_to = "PC",
-                 values_to = "score") 
-  # Loadings
-  df_list$loadings <-
-    # Make dataframe
-    tibble(zOTU = variable_list) %>%
-    cbind(pca_object$loadings) %>%
-    # Pivot into long tibble
-    pivot_longer(cols=!zOTU,
-                 names_to = "PC",
-                 values_to = "Loadings")
-  # Scree plot
-  df_list$screeplot <- 
-    pca_object$singular_values %>%
-    # Calculate explained variance per component
-    expl_var_from_svd() %>%
-    # Use values as a column in a new tibble
-    tibble(percentage = .)%>%
-    # Filter for components explaining more than 1% of variation
-    filter(percentage > 0)%>%
-    # Add Components numbers
-    mutate(PC = row_number())
-  return(df_list)
-}
 
 
 # PERFORM GLMM JACKKNIFE 

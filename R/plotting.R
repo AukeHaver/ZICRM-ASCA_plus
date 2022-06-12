@@ -89,7 +89,7 @@ plot_simulated_loadings <- function(loading_matrix, expl_var, component){
     )+
     # Theme and labels
     theme_classic(base_family = "Times")+
-    theme(axis.text.x=element_text(size=10))+
+    theme(axis.text.x=element_text(size=6))+
     labs(
       y=paste0("Loadings PC", component, " (", expl_var[component], "%)"),
       x="Variable"
@@ -258,7 +258,7 @@ plot_estimate_time_loadings <- function(loadings_dataframe, perc_expl_dataframe,
     ) +
     # Theme and labels
     theme_classic(base_family = "Times")+
-    theme(axis.text.x=element_text(size=10))+
+    theme(axis.text.x=element_text(size=6))+
     labs(
       y=paste0("Loadings PC", component, " (", min(perc_expl_list), "-", max(perc_expl_list), "%)"),
       x="Variable"

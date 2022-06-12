@@ -1,8 +1,7 @@
-### ZICRM-ASCA+ supplementary Functions
+### ZICRM-ASCA+ simulation
 ### Author: Auke Haver
 ### BDA GROUP SILS Amsterdam
 ### Project: Zero-inflated GLMM ASCA
-### Date 
 
 # FUNCTION FOR SIMULATION INFO 
 # Generates list with design description
