@@ -12,6 +12,8 @@ source("R/simulation.R",local=TRUE)
 source("R/analysis.R",local=TRUE)
 source("R/plotting.R",local=TRUE)
 ncores = detectCores()
+
+outfile_prefix = format(Sys.Date(),"%Y%m%d")
 ```
 
 # Introduction
@@ -125,7 +127,7 @@ ggarrange(
   label.x = .88
 )
 ggsave(
-  filename = paste0("Images/", Sys.time(), "_simulation.png"),
+  filename = paste0("images/", outfile_prefix, "_simulation.png"),
   width = 8,
   height = 4
 )
@@ -167,6 +169,17 @@ unbalanced_simulation_matrices <-
 # Modify Design list
 design_info$X <- unbalanced_simulation_matrices$X
 design_info$design <- unbalanced_simulation_matrices$design
+
+# Write matrices to xlsx
+write_xlsx(
+  x = lapply(
+    X = unbalanced_simulation_matrices,
+    FUN = as_tibble
+  ),
+  path = paste0(
+    "results/", outfile_prefix, "_matrices.xlsx"
+  )
+)
 ```
 
 ## Plot Zero-inflation per zOTU
@@ -206,7 +219,7 @@ gen_long_response_df(unbalanced_simulation_matrices) %>%
                      rot=90))
   ggsave(
     filename= paste0(
-      "Images/", 
+      "images/", 
       Sys.time(),
       "_zero-inflation_per_zOTU.png"),
     width = 6,
@@ -265,7 +278,7 @@ ggarrange(
   label.x = .88
 )
 ggsave(
-  filename = paste0("Images/", Sys.time(), "_estimate.png"),
+  filename = paste0("images/", outfile_prefix, "_estimate.png"),
   width = 8,
   height = 4
 )
