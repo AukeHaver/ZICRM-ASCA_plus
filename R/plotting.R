@@ -86,7 +86,7 @@ plot_simulated_loadings <- function(loading_matrix, expl_var, component){
         loading = loading_matrix[,component]
       ),
       mapping = aes(
-        x = reorder(var, as.numeric(var)),
+        x = LETTERS[var],
         y = loading
       ),
       color = "black",
@@ -216,7 +216,7 @@ plot_estimate_interaction_scores <- function(score_dataframe, perc_expl_datafram
       fill="Treatment Group"
     )
 }
-plot_estimate_time_loadings <- function(loadings_dataframe, perc_expl_dataframe, component){
+plot_estimate_loadings <- function(loadings_dataframe, perc_expl_dataframe, component){
   perc_expl_list <- perc_expl_dataframe %>%
     filter(
       fold != "ref",
@@ -231,7 +231,7 @@ plot_estimate_time_loadings <- function(loadings_dataframe, perc_expl_dataframe,
           fold == "ref"
         ),
       mapping = aes(
-        x = reorder(var, as.numeric(var)),
+        x = LETTERS[as.numeric(var)],
         y = loading
       ),
       color = "black",
@@ -250,7 +250,7 @@ plot_estimate_time_loadings <- function(loadings_dataframe, perc_expl_dataframe,
           .groups = "drop"
         ),
       mapping = aes(
-        x = var,
+        x = LETTERS[var],
         ymin = min_loading,
         ymax = max_loading
       )
