@@ -53,48 +53,21 @@ gen_sim_design <- function(design_info_list){
       rep(design_info_list$n_timepoints) %>% 
       factor(),
     # Column of timepoints
-    timepoint = seq(1:design_info_list$n_timepoints)%>%
-      rep(each=design_info_list$n_treatments*
-            design_info_list$n_dummy_replicates) %>% 
-      factor(),
+    timepoint = rep(
+      x = seq(1:design_info_list$n_timepoints) -1,
+      each = design_info_list$n_treatments * design_info_list$n_dummy_replicates
+    ),
     # Column of treatments
-    treatment = seq(1:design_info_list$n_treatments) %>%
-      rep(each=design_info_list$n_dummy_replicates) %>%
-      rep(design_info_list$n_timepoints) %>%
-      factor())
+    treatment = rep(
+      x = rep(
+        x = seq(1:design_info_list$n_treatments),
+        each=design_info_list$n_dummy_replicates
+      ),
+      times = design_info_list$n_timepoints)
+  )
   # Set contrasts
-  contrasts(output_df$timepoint) <- contr.sum(design_info_list$n_timepoints)
-  contrasts(output_df$treatment) <- contr.sum(design_info_list$n_treatments)
   return(output_df)}
 
-# SIMULATE FIXED PARAMETER MATRIX 
-# Simulate a fixed parameter matrix with 2 effects and their interactions
-simulate_fixed_param_matrix <- function(
-  levels = c(3,4), # The levels for each effects (e.g. 3 timepoints and 4 treatments )
-  effects = c("A","B","AB"), # The effects in the output matrix
-  replicates = 1){ # The number of replicates per level combination
-  n_interactions = prod(levels) # Calculate possible interactions between each level of each effect
-  A <- rep(contr.sum(levels[1]),each=levels[2]) # A sum-coded matrix for effect A
-  B <- apply(contr.sum(levels[2]), # A sum-coded matrix for effect B
-             FUN=function(x)rep(x,levels[1]),MARGIN=2) 
-  AB <- matrix(rep(0,levels[1]*(levels[2]-1)*levels[1]*levels[2]), # A zero matrix for interaction effects
-               ncol=levels[1]*(levels[2]-1)) 
-  # Consider x levels for effect A and y levels for effect B.
-  # An interaction matrix could be viewed as a singular matrix of size x*x.
-  # Each zero in this matrix is instead a matrix of zeroes of size (y*(y-1)).
-  # Each one in this matrix is instead a treatment contrast matrix for y treatments.
-  # This replacement is performed in the three lines below.
-  for(i in 1:levels[1]){ 
-    AB[(levels[2]*(i-1)+1):(levels[2]*i),
-       ((levels[2]-1)*(i-1)+1):((levels[2]-1)*i)]<-contr.sum(levels[2])}
-  out <- rep(1,prod(levels)) # output matrix, initially formatted as a list with ones for the mean.
-  if("A" %in% effects){ # Only add effect A to the final matrix if it should be included
-    out<-c(out,A)}
-  if("B" %in% effects){ # Only add effect B to the final matrix if it should be included
-    out<-c(out,B)}
-  if("AB" %in% effects){ # Only add effect AB to the final matrix if it should be included
-    out<-c(out,AB)}
-  return(matrix(rep(out,each=replicates),nrow=prod(levels)*replicates))}
 
 # FUNCTION FOR MATRIX COMPOSITION 
 compose_matrices <- function(design_info_list,
@@ -135,9 +108,9 @@ compose_matrices <- function(design_info_list,
                      MASS::mvrnorm(prod(
                        design_info_list$n_dummy_replicates,
                        design_info_list$n_treatments),
-                                   empirical = TRUE,
-                                   Sigma=subject_Sigma,
-                                   mu=subject_mu))}
+                       empirical = TRUE,
+                       Sigma=subject_Sigma,
+                       mu=subject_mu))}
     output$Ms <- matrix(output$Ms,ncol=design_info_list$n_variables)
     for(i in 1:design_info_list$n_timepoint){
       temp_list[[i]] <- output$Ms
@@ -231,29 +204,24 @@ gen_sim_sub_matrices <- function(design_info_list,
   # Modify Design File
   output$design <- matrix_of_design %>% filter(subject %in% subset_subjects)
   # Calculate replicates per treatment group
-  output$replicates <- output$design %>% 
-    select(-timepoint) %>%
-    distinct()%>%
-    group_by(treatment)%>%
-    summarize(replicates=n(),.groups="drop") 
   return(output)
 }
-
-
 
 
 # GENERATE LONG RESPONSE DATAFRAME 
 # Function for generating long-pivoted response dataframe from matrix list
 gen_long_response_df <- function(matrix_list){
-  return(
+  colnames(matrix_list$response) <- paste0("zOTU_", seq(1:ncol(matrix_list$response)))
+  response_tibble <- as_tibble(
     cbind(
-      matrix_list$design,
-      matrix_list$response %>%
-        as_tibble(.name_repair) %>%
-        set_names(seq(1:ncol(.)))) %>%
-      pivot_longer(cols=!c("subject","timepoint","treatment"),
-                   values_to = "count",
-                   names_to = "zOTU") %>%
-      mutate(zOTU = factor(zOTU, 
-                           levels = seq(1:ncol(matrix_list$response)))))
+      matrix_list$design %>%
+        select(subject, timepoint, treatment),
+      matrix_list$response
+    )
+  ) %>%
+    pivot_longer(cols=!c("subject","timepoint","treatment"),
+                 values_to = "count",
+                 names_to = "zOTU",
+                 names_prefix = "zOTU_")
+  return(response_tibble)
 }

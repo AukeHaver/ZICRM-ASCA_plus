@@ -24,7 +24,7 @@ fit_glmm <- function(long_response_df,
             X = data,
             FUN = possibly(
               function(x) glmmTMB(
-                count ~ timepoint + timepoint:treatment+(1|subject),
+                count ~ time1 + time2 + int12 + int13 + int14 + int15 + int22 + int23 + int24 + int25 +(1|subject),
                 family = family,
                 data=x,
                 ziformula = ~1,
@@ -71,7 +71,6 @@ fit_glmm <- function(long_response_df,
 comp_mat_from_coef <- function(glmm_results_df,  # List with GLMM fit results
                                fixef_mod_mat,   # Fixed effect model matrix
                                include_residuals=FALSE){
-  
   # Initialize list for storing results
   output <- list()
   # Create coefficient matrix for fixed effects
@@ -87,7 +86,7 @@ comp_mat_from_coef <- function(glmm_results_df,  # List with GLMM fit results
   output$Ma <- fixef_mod_mat[,2:3] %*% output$fixed_coef_mat[2:3,]
   colnames(output$Ma)<-glmm_results_df$zOTU
   # Interaction effect
-  output$Mab <- fixef_mod_mat[,4:15] %*% output$fixed_coef_mat[4:15,]
+  output$Mab <- fixef_mod_mat[,4:11] %*% output$fixed_coef_mat[4:11,]
   colnames(output$Mab)<-glmm_results_df$zOTU
   # Combined Time and Interaction effect
   output$Ma_ab <- output$Ma + output$Mab
@@ -160,6 +159,12 @@ extr_glmm_coef <- function(model_df,
   return(output)
 }
 
+# CALCULATE EXPLAINED VARIANCE FROM SINGULAR VALUES 
+expl_var_from_svd <- function(singular_values,
+                              decimals = 1){
+  return(round(singular_values^2/sum(singular_values^2)*100,decimals))
+}
+
 
 # PERFORM PCA 
 # Return scores, loadings and singular values of singular value decomposition (SVD)
@@ -170,41 +175,15 @@ perform_pca <- function(input_matrix){
   output$scores <- USV$u %*% diag(USV$d)
   output$loadings <- USV$v
   output$singular_values = USV$d
+  output$expl_var = expl_var_from_svd(output$singular_values)
   return(output)
 }
 
-# PERFORM PCA ON EFFECT MATRICES 
-# performs an apply of pca function on all elements of effect matrix list
-pca_effect_matrices <- function(glmm_efmat_list){
-  return(
-    lapply(
-      glmm_efmat_list,
-      FUN="col_center"
-    )%>%
-      lapply(
-        FUN="perform_pca"
-      )
-  )
-}
-
-
-# CALCULATE EXPLAINED VARIANCE FROM SINGULAR VALUES 
-expl_var_from_svd <- function(singular_values,
-                              decimals = 1){
-  return(round(singular_values^2/sum(singular_values^2)*100,decimals))
-}
 
 # RETURN SUM OF SQUARE MATRIX
 ssq <- function(number_matrix){
   return(sum(number_matrix^2))
 }
-
-# Column-center a matrix
-col_center <- function(data_matrix){
-  return(sweep(x      = data_matrix,
-               MARGIN = 2,
-               STATS  = colMeans(data_matrix),
-               FUN    = "-"))}
 
 
 # Make vector unit vector
@@ -249,7 +228,6 @@ orthprocr_pca <- function(target,query, n_comp){
 }
 
 
-
 # PERFORM GLMM JACKKNIFE 
 # long function with hard-coded options
 # could require improvements
@@ -261,8 +239,6 @@ fit_jackknife_models <- function(fitted_models, # Fitted models on full dataset
   original_data <- do.call("rbind",fitted_models$data) %>%
     mutate(zOTU = rep(fitted_models$zOTU, each = nrow(fitted_models$data[[1]]))) %>%
     arrange(timepoint,treatment,subject)
-  contrasts(original_data$timepoint) <- contr.sum(n_distinct(original_data$timepoint))
-  contrasts(original_data$treatment) <- contr.sum(n_distinct(original_data$treatment))
   
   # Make a dataframe for assigning group labels to each subject
   subject_group_df <- 
@@ -312,7 +288,6 @@ fit_jackknife_models <- function(fitted_models, # Fitted models on full dataset
   }
   # Make a list of zOTUs which were succesfully fitted in each fold
   shared_fitted_zOTUs <- Reduce(intersect,jackknife_zOTUs)
-  
   output <- list()
   output$zOTUs <- shared_fitted_zOTUs
   output$models<- jackknife_models
@@ -337,6 +312,8 @@ score_matrix_to_long_tibble <- function(score_matrix, design, fold){
     ) %>%
     return()
 }
+
+
 # Transform a matrix of loadings to a long tibble
 loading_matrix_to_long_tibble <- function(loading_matrix, varnames, fold){
   loading_matrix %>%
@@ -375,9 +352,9 @@ process_jackknife_models <- function(jackknife_models_list,
   jackknife_res$reference_pca  <- jackknife_models_list$full_model %>% 
     filter(zOTU %in% jackknife_res$zOTUs) %>%
     comp_mat_from_coef(design_info_list$X) %>%
-    pca_effect_matrices()
+    lapply(FUN = "perform_pca")
   # Iterate over models, compose parameter matrices, perform pca
-  # Finally perform procrustus rotation
+  # Finally perform procrustes rotation
   # Start of fold loop
   for(i in 1:length(jackknife_models)){
     jackknife_fold_design <- 
@@ -388,19 +365,21 @@ process_jackknife_models <- function(jackknife_models_list,
       select(-subgroup)
     # Modify fixed model design matrix
     fold_X <- design_info_list$design %>%
+      select(subject)%>%
       cbind(design_info_list$X) %>%
       left_join(subject_group_df,
                 by="subject") %>%
       filter(!subgroup==i)%>%
-      select(
-        -subgroup,
-        -colnames(design_info_list$design)) %>%
+      select(`(intercept)`,time1,time2,int12,int13,int14,int15,int22,int23,int24,int25) %>%
       as.matrix()
     # Transform models into pca matrices per effect
     fold_pca_res <- jackknife_models[[i]] %>% 
       filter(zOTU %in% jackknife_res$zOTUs) %>%
       comp_mat_from_coef(fold_X) %>%
-      pca_effect_matrices()
+      lapply(
+        X = .,
+        FUN = "perform_pca"
+      )
     # Calculate the minimum number of components to include
     # If the reference matrix and fold matrix have different number of components. The rotation matrix will not be square and therefore no inverse can be calculated.
     n_components = min(ncol(jackknife_res$reference_pca$Ma$loadings), ncol(fold_pca_res$Ma$loadings))

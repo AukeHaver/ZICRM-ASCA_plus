@@ -19,7 +19,6 @@ outfile_prefix = format(Sys.Date(),"%Y%m%d")
 # Introduction
 In this simulation, we will apply the ASCA framework on unbalanced, zero-inflated, Poisson-distributed data. Furthermore, we will consider repeated measurements on unbalanced groups. This will require the use of Generalized Linear Mixed Models (GLMM) for estimating coefficients which can be used to construct effect matrices, which can be decomposed into scores and loadings through Singular Value Decomposition (SVD). We will utilize a 7-fold Jackknife approach for validation of our method.  
 
-
 # Data Simulation
 ## Design
 First, the parameters of the study need to be determined. Using the function gen_sim_info(), we simulate a design info file which constitutes a list with information on the design. Then, we construct a design matrix from the design info with sum-coded variables. Lastly, we construct a fixed effect model matrix for later multiplication with the fixed effect parameter matrix.
@@ -27,7 +26,7 @@ First, the parameters of the study need to be determined. Using the function gen
 # design size
 design_info <- gen_sim_info(n_treatments       = 5,
                             n_timepoints       = 3,
-                            timepoints         = c("0","6","12") %>% 
+                            timepoints         = c("0","1","2") %>% 
                               factor(x      =.,
                                      levels =.),
                             treatments         = c("1","2","3","4","5") %>% 
@@ -38,18 +37,72 @@ design_info <- gen_sim_info(n_treatments       = 5,
                             n_subjects         = 208,
                             n_dummy_replicates = 60,
                             family             = "zinbinom", # choose pois, zipois, nbinom, zinbinom
-                            prob_zero          = 0.50,
+                            prob_zero          = 0.75,
                             sigma               = 10,
                             jackknife_fold     = 7) 
 
 # Generate Design Matrix
 design_matrix <- gen_sim_design(design_info)
+```
 
-# Construct a fixed effect model matrix
-X <- model.matrix(~timepoint+timepoint:treatment,
-                  design_matrix)
+```{r Model Matrix}
+df.model_matrix <- tibble(
+  timepoint = rep(seq(1:3)-1, each = 5),
+  treatment = rep(seq(1:5), times = 3)) %>%
+  mutate(
+    observation = paste0("time", timepoint, "treat", treatment),
+  `(intercept)` = 1,
+  time1 =  c( 0,  0,  0,  0,  0,  1,  1,  1,  1,  1,  0,  0,  0,  0,  0), # Reference coded
+  time2 =  c( 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,  1), 
+  treat2 = c(-1,  1,  0,  0,  0, -1,  1,  0,  0,  0, -1,  1,  0,  0,  0), # Sum coded
+  treat3 = c(-1,  0,  1,  0,  0, -1,  0,  1,  0,  0, -1,  0,  1,  0,  0),
+  treat4 = c(-1,  0,  0,  1,  0, -1,  0,  0,  1,  0, -1,  0,  0,  1,  0),
+  treat5 = c(-1,  0,  0,  0,  1, -1,  0,  0,  0,  1, -1,  0,  0,  0,  1),
+) %>%
+  mutate(
+    int12 = time1 * treat2,
+    int13 = time1 * treat3,
+    int14 = time1 * treat4,
+    int15 = time1 * treat5,
+    int22 = time2 * treat2,
+    int23 = time2 * treat3,
+    int24 = time2 * treat4,
+    int25 = time2 * treat5,
+  ) %>%
+  select(
+    -treat2,
+    -treat3,
+    -treat4,
+    -treat5
+  ) 
 
+X <- 
+design_matrix %>%
+  left_join(
+    x = .,
+    y = df.model_matrix,
+    by = c("timepoint","treatment")) %>%
+  select(
+    -subject,
+    -timepoint,
+    -treatment,
+    -observation
+  ) %>% 
+  as.matrix()
 
+design_matrix <-
+  left_join(
+    x = design_matrix,
+    y = df.model_matrix,
+    by = c("timepoint","treatment")) %>%
+  select(
+    -observation
+  )
+
+design_info$X <- X
+```
+
+```{r Prepare directories}
 output_dir <- paste0(
   "Result/",
   "ZICRM-ASCA_plus_",
@@ -68,7 +121,6 @@ for(dir in c("Result", output_dir)){
     dir.create(dir)
   }
 }
-
 ```
 
 ## Scores and Loadings
@@ -76,12 +128,12 @@ Having decided the design of the simulation, we will continue with setting the s
 ```{r Simulate scores and loadings}
 # SCORES
 ## Time Effect
-Ta <- c(-4.00, 0.00, 4.00,      # PC 1
-        1.00,-2.00, 1.00) %>%  # PC 2
+Ta <- c( 0.00, 4.00, 6.00,      # PC 1
+         0.00,-3.00, 2.00) %>%  # PC 2
   rep(each = design_info$n_treatments*design_info$n_dummy_replicates) %>% 
   matrix(ncol=2) 
 ## Time:Treatment Interaction Effect
-Tab<-c(0.00, 0.00,-0.00, 0.00, 0.00, 3.00, 1.00,-0.50,-1.50,-2.00, 4.00,-0.50,-1.00,-1.50,-1.00,    # PC 1
+Tab<-c(0.00, 0.00, 0.00, 0.00, 0.00, 3.00, 1.00,-0.50,-1.50,-2.00, 4.00,-0.50,-1.00,-1.50,-1.00,    # PC 1
        0.00, 0.00, 0.00, 0.00, 0.00, 0.40,-0.70, 0.00, 0.20, 0.10, 0.50,-2.50,-0.25, 2.50,-0.25)%>% # PC 2
   rep(each = design_info$n_dummy_replicates)%>% 
   matrix(ncol=design_info$n_PC) 
@@ -174,7 +226,7 @@ design_info$design <- unbalanced_simulation_matrices$design
 write_xlsx(
   x = lapply(
     X = unbalanced_simulation_matrices,
-    FUN = as_tibble
+    FUN = function(x) as_tibble(x,.name_repair = "minimal")
   ),
   path = paste0(
     "results/", outfile_prefix, "_matrices.xlsx"
@@ -231,12 +283,16 @@ gen_long_response_df(unbalanced_simulation_matrices) %>%
 # Perform ZIGLMM fit on complete dataset
 ```{r GLMM ASCA with Jackknife}
 # Fit GLMMs and Extract coefficients
-glmm_fit_results <- gen_long_response_df(unbalanced_simulation_matrices) %>%
+glmm_fit_results <-left_join(
+  x = gen_long_response_df(unbalanced_simulation_matrices),
+  y = df.model_matrix,
+  by = c("timepoint", "treatment")) %>%
   fit_glmm(
     long_response_df = .,
     dist_family = design_info$family,
     cores=ncores
-  ) %>%
+  ) %>% 
+  filter(!is.na(model)) %>%
   extr_glmm_coef(
     model_df = .,
     family = design_info$family,
@@ -266,10 +322,10 @@ ggarrange(
   plot_estimate_time_scores(glmm_jackknife_results$Ta, glmm_jackknife_results$perc_a, 2),
   plot_estimate_interaction_scores(glmm_jackknife_results$Tab, glmm_jackknife_results$perc_ab, 1),
   plot_estimate_interaction_scores(glmm_jackknife_results$Tab, glmm_jackknife_results$perc_ab, 2),
-  plot_estimate_time_loadings(glmm_jackknife_results$Pa, glmm_jackknife_results$perc_a, 1),
-  plot_estimate_time_loadings(glmm_jackknife_results$Pa, glmm_jackknife_results$perc_a, 2),
-  plot_estimate_time_loadings(glmm_jackknife_results$Pab, glmm_jackknife_results$perc_ab, 1),
-  plot_estimate_time_loadings(glmm_jackknife_results$Pab, glmm_jackknife_results$perc_ab, 2),
+  plot_estimate_loadings(glmm_jackknife_results$Pa, glmm_jackknife_results$perc_a, 1),
+  plot_estimate_loadings(glmm_jackknife_results$Pa, glmm_jackknife_results$perc_a, 2),
+  plot_estimate_loadings(glmm_jackknife_results$Pab, glmm_jackknife_results$perc_ab, 1),
+  plot_estimate_loadings(glmm_jackknife_results$Pab, glmm_jackknife_results$perc_ab, 2),
   ncol = 4,
   nrow = 2,
   common.legend = TRUE,

@@ -47,7 +47,7 @@ plot_simulated_interaction_scores <- function(design_matrix, score_matrix, expl_
       mapping = aes(
         x = timepoint,
         y = score,
-        fill = treatment
+        fill = factor(treatment)
       ),
       shape = 21
     )+
@@ -62,8 +62,8 @@ plot_simulated_interaction_scores <- function(design_matrix, score_matrix, expl_
       mapping = aes(
         x = timepoint,
         y = score,
-        group = treatment,
-        color = treatment
+        group = factor(treatment),
+        color = factor(treatment)
       ),
       show.legend = FALSE
     ) +
@@ -165,8 +165,8 @@ plot_estimate_interaction_scores <- function(score_dataframe, perc_expl_datafram
       mapping = aes(
         x = timepoint,
         y = score,
-        color = treatment,
-        group = treatment
+        color = factor(treatment),
+        group = factor(treatment)
       ),
       show.legend = FALSE
     )+
@@ -186,7 +186,7 @@ plot_estimate_interaction_scores <- function(score_dataframe, perc_expl_datafram
         x = timepoint,
         ymin = min_score,
         ymax = max_score,
-        color = treatment
+        color = factor(treatment)
       ),
       show.legend = FALSE
     )+
@@ -199,8 +199,8 @@ plot_estimate_interaction_scores <- function(score_dataframe, perc_expl_datafram
       mapping = aes(
         x = timepoint,
         y = score,
-        fill = treatment,
-        group = treatment
+        fill = factor(treatment),
+        group = factor(treatment)
       ),
       
       shape = 21
