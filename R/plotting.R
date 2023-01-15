@@ -3,62 +3,40 @@
 ### BDA GROUP SILS Amsterdam
 ### Project: Zero-inflated GLMM ASCA
 
-plot_simulated_time_scores <- function(design_matrix, score_matrix, expl_var, component){
+plot_simulated_time_scores <- function(design_matrix, score_matrix, expl_var, component, y_label = ""){
   ggplot() +
     geom_point(
       data = design_matrix %>%
-        mutate(score = score_matrix[,component]) %>%
-        distinct(
-          timepoint,
-          score
-        ),
-      mapping = aes(
-        x = timepoint,
-        y = score
-      ),
+        mutate(score = as.matrix(design_matrix[,5:6]) %*% Ta[,component]) %>%
+        distinct(timepoint,score),
+      mapping = aes(x = timepoint,y = score),
       shape = 21,
       color = "black",
       fill = "white"
     )+
     # Theme
-    theme_classic(base_family="Times")+
+    theme_bw()+
+    #theme_classic(base_family="Times")+
     # Labels
     labs(
       x = "Timepoint",
-      y = paste0(
-        "Scores PC", 
-        component, 
-        " (",
-        expl_var[component],
-        "%)"
-      )
+      y=substitute(paste(m, " PC", c, " (",e,"%)", sep = ""), list(m = y_label, c = component, e = expl_var[component])),
     )
 }
-plot_simulated_interaction_scores <- function(design_matrix, score_matrix, expl_var, component){
-  ggplot() +
+plot_simulated_interaction_scores <- function(design_matrix, score_matrix, expl_var, component, y_label = ""){
+  ggplot(
+    data = design_matrix %>%
+      mutate(score = as.matrix(design_matrix[,7:14]) %*% Tab[,component]) %>%
+      distinct(timepoint, treatment, score)
+    ) +
     geom_point(
-      data = design_matrix %>%
-        mutate(score = score_matrix[,component]) %>%
-        distinct(
-          timepoint,
-          treatment,
-          score
-        ),
-      mapping = aes(
-        x = timepoint,
-        y = score,
-        fill = factor(treatment)
-      ),
+      mapping = aes(x = timepoint, y = score, fill = factor(treatment)),
       shape = 21
     )+
     geom_line(
-      data = design_matrix %>%
-        mutate(score = score_matrix[,component]) %>%
-        distinct(
-          timepoint,
-          treatment,
-          score
-        ),
+      # data = design_matrix %>%
+      #   mutate(score = score_matrix[,component]) %>%
+      #   distinct(timepoint, treatment, score),
       mapping = aes(
         x = timepoint,
         y = score,
@@ -68,17 +46,17 @@ plot_simulated_interaction_scores <- function(design_matrix, score_matrix, expl_
       show.legend = FALSE
     ) +
     # Theme and labels
-    theme_classic(base_family = "Times")+
-    theme(axis.text.x=element_text(size=10))+
+    theme_bw()+
+    #theme(axis.text.x=element_text(size=10))+
     scale_color_viridis_d()+
     scale_fill_viridis_d()+
     labs(
-      y=paste0("Scores PC", component, " (", expl_var[component], "%)"),
+      y=substitute(paste(m, " PC", c, " (",e,"%)", sep = ""), list(m = y_label, c = component, e = expl_var[component])),
       x="Timepoint",
       fill="Treatment Group"
     )
 }
-plot_simulated_loadings <- function(loading_matrix, expl_var, component){
+plot_simulated_loadings <- function(loading_matrix, expl_var, component, y_label = ""){
   ggplot() +
     geom_col(
       data = tibble(
@@ -92,16 +70,17 @@ plot_simulated_loadings <- function(loading_matrix, expl_var, component){
       color = "black",
       fill = "white"
     )+
+    theme_bw()+
     # Theme and labels
-    theme_classic(base_family = "Times")+
-    theme(axis.text.x=element_text(size=6))+
+    #theme_classic(base_family = "Times")+
+    #theme(axis.text.x=element_text(size=6))+
     labs(
-      y=paste0("Loadings PC", component, " (", expl_var[component], "%)"),
+      y=substitute(paste(m, " PC", c, " (",e,"%)", sep = ""), list(m = y_label, c = component, e = expl_var[component])),
       x="Variable"
     )
 }
-plot_estimate_time_scores <- function(score_dataframe, perc_expl_dataframe, component){
-  perc_expl_list <- perc_expl_dataframe %>%
+plot_estimate_time_scores <- function(score_dataframe, perc_expl_dataframe, component, y_label = ""){
+  expl_var <- perc_expl_dataframe %>%
     filter(
       fold != "ref",
       PC == component
@@ -138,18 +117,20 @@ plot_estimate_time_scores <- function(score_dataframe, perc_expl_dataframe, comp
         y = score
       )
     ) +
+    theme_bw()+
     # Theme and labels
-    theme_classic(base_family = "Times")+
-    theme(axis.text.x=element_text(size=10))+
+    #theme_classic(base_family = "Times")+
+    #theme(axis.text.x=element_text(size=10))+
     scale_color_viridis_d()+
     scale_fill_viridis_d()+
     labs(
-      y=paste0("Scores PC", component, " (", min(perc_expl_list), "-", max(perc_expl_list), "%)"),
+      y = substitute(paste(m, " PC", c, " (", min, "-", max, "%)", sep = ""), list(m = y_label, min = format(min(expl_var),nsmall=1), max = format(max(expl_var),nsmall=1), c = component)),
+      #y=            paste0("Scores PC", component, ),
       x="Timepoint"
     )
 }
-plot_estimate_interaction_scores <- function(score_dataframe, perc_expl_dataframe, component){
-  perc_expl_list <- perc_expl_dataframe %>%
+plot_estimate_interaction_scores <- function(score_dataframe, perc_expl_dataframe, component, y_label = ""){
+  expl_var <- perc_expl_dataframe %>%
     filter(
       fold != "ref",
       PC == component
@@ -205,19 +186,21 @@ plot_estimate_interaction_scores <- function(score_dataframe, perc_expl_datafram
       
       shape = 21
     ) +
+    theme_bw()+
     # Theme and labels
-    theme_classic(base_family = "Times")+
-    theme(axis.text.x=element_text(size=10))+
+    #theme_classic(base_family = "Times")+
+    #theme(axis.text.x=element_text(size=10))+
     scale_color_viridis_d()+
     scale_fill_viridis_d()+
     labs(
-      y=paste0("Scores PC", component, " (", min(perc_expl_list), "-", max(perc_expl_list), "%)"),
+      y = substitute(paste(m, " PC", c, " (", min, "-", max, "%)", sep = ""), list(m = y_label, min = format(min(expl_var),nsmall=1), max = format(max(expl_var),nsmall=1), c = component)),
+      #y=paste0("Scores PC", component, " (", min(perc_expl_list), "-", max(perc_expl_list), "%)"),
       x="Timepoint",
       fill="Treatment Group"
     )
 }
-plot_estimate_loadings <- function(loadings_dataframe, perc_expl_dataframe, component){
-  perc_expl_list <- perc_expl_dataframe %>%
+plot_estimate_loadings <- function(loadings_dataframe, perc_expl_dataframe, component, y_label = ""){
+  expl_var <- perc_expl_dataframe %>%
     filter(
       fold != "ref",
       PC == component
@@ -261,11 +244,13 @@ plot_estimate_loadings <- function(loadings_dataframe, perc_expl_dataframe, comp
       ),
       linetype = "dashed"
     ) +
+    theme_bw()+
     # Theme and labels
-    theme_classic(base_family = "Times")+
-    theme(axis.text.x=element_text(size=6))+
+    #theme_classic(base_family = "Times")+
+    #theme(axis.text.x=element_text(size=6))+
     labs(
-      y=paste0("Loadings PC", component, " (", min(perc_expl_list), "-", max(perc_expl_list), "%)"),
+      y = substitute(paste(m, " PC", c, " (", min, "-", max, "%)", sep = ""), list(m = y_label, min = format(min(expl_var),nsmall=1), max = format(max(expl_var),nsmall=1), c = component)),
+      #y=paste0("Loadings PC", component, " (", min(perc_expl_list), "-", max(perc_expl_list), "%)"),
       x="Variable"
     )
 }

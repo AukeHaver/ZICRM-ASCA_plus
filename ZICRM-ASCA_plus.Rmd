@@ -23,32 +23,25 @@ In this simulation, we will apply the ASCA framework on unbalanced, zero-inflate
 ## Design
 First, the parameters of the study need to be determined. Using the function gen_sim_info(), we simulate a design info file which constitutes a list with information on the design. Then, we construct a design matrix from the design info with sum-coded variables. Lastly, we construct a fixed effect model matrix for later multiplication with the fixed effect parameter matrix.
 ```{r Simulation Design}
-# design size
-design_info <- gen_sim_info(n_treatments       = 5,
-                            n_timepoints       = 3,
-                            timepoints         = c("0","1","2") %>% 
-                              factor(x      =.,
-                                     levels =.),
-                            treatments         = c("1","2","3","4","5") %>% 
-                              factor(x      =.,
-                                     levels =.),
-                            n_PC               = 2 ,
-                            n_variables        = 16,
-                            n_subjects         = 208,
-                            n_dummy_replicates = 60,
-                            family             = "zinbinom", # choose pois, zipois, nbinom, zinbinom
-                            prob_zero          = 0.75,
-                            sigma               = 10,
-                            jackknife_fold     = 7) 
+timepoints = factor(c("0", "1", "2"))
+treatments = factor(as.character(seq(5)))
 
-# Generate Design Matrix
-design_matrix <- gen_sim_design(design_info)
-```
+design <- list(
+  timepoints = factor(c("0", "1", "2")),
+  treatments = factor(as.character(seq(5))),
+  variables = LETTERS[1:16],
+  n_subjects = 208,
+  n_dummy_replicates = 60,
+  family = "zinbinom",
+  prob_zero = .75,
+  sigma = 10,
+  jackknife_folds = 7
+  )
 
-```{r Model Matrix}
-df.model_matrix <- tibble(
-  timepoint = rep(seq(1:3)-1, each = 5),
-  treatment = rep(seq(1:5), times = 3)) %>%
+design$dummy_model_matrix = tibble(
+  timepoint = rep(design$timepoints, each = 5),
+  treatment = rep(design$treatments, times = 3)
+  ) %>%
   mutate(
     observation = paste0("time", timepoint, "treat", treatment),
   `(intercept)` = 1,
@@ -76,43 +69,49 @@ df.model_matrix <- tibble(
     -treat5
   ) 
 
-X <- 
-design_matrix %>%
+design$dummy_design_matrix <- tibble(
+  # The subjects involved in the study
+  subject = seq(length(design$treatments) * design$n_dummy_replicates) %>%
+    rep(length(design$timepoints)),
+  # The timepoint of measurement
+  timepoint = rep(
+    x = design$timepoints,
+    each = length(design$treatments) * design$n_dummy_replicates
+    ),
+  # The treatment the subject was subjected to
+  treatment = rep(
+    rep(design$treatments, each=design$n_dummy_replicates),
+    times = length(design$timepoints)
+)
+)%>%
   left_join(
     x = .,
-    y = df.model_matrix,
-    by = c("timepoint","treatment")) %>%
-  select(
-    -subject,
-    -timepoint,
-    -treatment,
-    -observation
-  ) %>% 
-  as.matrix()
-
-design_matrix <-
-  left_join(
-    x = design_matrix,
-    y = df.model_matrix,
+    y = design$dummy_model_matrix,
     by = c("timepoint","treatment")) %>%
   select(
     -observation
   )
 
-design_info$X <- X
+design$X_dummy <- 
+design$dummy_design_matrix %>%
+  select(
+    -subject,
+    -timepoint,
+    -treatment
+  ) %>% 
+  as.matrix()
 ```
 
 ```{r Prepare directories}
 output_dir <- paste0(
-  "Result/",
-  "ZICRM-ASCA_plus_",
-  design_info$family,
-  "_",
+  "Results/Simulation_",
   Sys.Date(),
   "_",
-  design_info$prob_zero,
-  "_",
-  design_info$sigma,
+  design$family,
+  "_prob_zero-",
+  design$prob_zero,
+  "_sigma-",
+  design$sigma,
   "/"
 )
 # Prepare output directory
@@ -128,23 +127,21 @@ Having decided the design of the simulation, we will continue with setting the s
 ```{r Simulate scores and loadings}
 # SCORES
 ## Time Effect
-Ta <- c( 0.00, 4.00, 6.00,      # PC 1
-         0.00,-3.00, 2.00) %>%  # PC 2
-  rep(each = design_info$n_treatments*design_info$n_dummy_replicates) %>% 
-  matrix(ncol=2) 
+Ta <- c( 2.00, 3.00) %>%  # PC 1
+ # rep(each = (design_info$n_treatments-1)*design_info$n_dummy_replicates) %>% 
+ matrix(ncol=1) 
+colnames(Ta) <- "PC1"
 ## Time:Treatment Interaction Effect
-Tab<-c(0.00, 0.00, 0.00, 0.00, 0.00, 3.00, 1.00,-0.50,-1.50,-2.00, 4.00,-0.50,-1.00,-1.50,-1.00,    # PC 1
-       0.00, 0.00, 0.00, 0.00, 0.00, 0.40,-0.70, 0.00, 0.20, 0.10, 0.50,-2.50,-0.25, 2.50,-0.25)%>% # PC 2
-  rep(each = design_info$n_dummy_replicates)%>% 
-  matrix(ncol=design_info$n_PC) 
-
+Tab<-c(-1,  4,   0,  1,  2,   0,   0, -2,    # P 1
+        0,-.5,-1.5,  2,  1,-0.5,-1.5,  1)%>% # PC 2
+  #rep(each = design_info$n_dummy_replicates)%>% 
+  matrix(ncol=2) 
+colnames(Tab) <- c("PC1", "PC2")
 # LOADINGS
 # Time Effect
-Pa <- cbind(
-  unit_vector(
+Pa <- matrix(unit_vector(
     c(-1,-1,-1, 2, 0, 0, 0, 0, 1, 1,-2, 1, 0, 0, 0, 0)),
-  unit_vector(
-    c(-2, 2,-2,-1, 0, 0, 0, 0, 1,-1, 1, 2, 0, 0, 0, 0)))
+    ncol = 1)
 # Time:Treatment Interaction Effect
 Pab <- cbind(
   unit_vector(
@@ -155,34 +152,39 @@ Pab <- cbind(
 # Explained variance per component
 expl_var_a <-  perform_pca(Ta %*% t(Pa))$singular_values %>% 
   expl_var_from_svd()
-expl_var_ab<-  perform_pca(Tab%*%t(Pab))$singular_values %>% 
+expl_var_ab<-  perform_pca(Tab %*% t(Pab))$singular_values %>% 
   expl_var_from_svd()
 ```
 
 ## Plot Scores and Loadings
 We are going to create 2 plots with each 4 subplots. For the Time and Time-Treatment Interaction effect we will make a scoreplot and loadings plot for principal component 1 and 2. 
 ```{r}
-ggarrange(
-  plot_simulated_time_scores(design_matrix, Ta, expl_var_a, 1),
-  plot_simulated_time_scores(design_matrix, Ta, expl_var_a, 2),
-  plot_simulated_interaction_scores(design_matrix, Tab, expl_var_ab, 1),
-  plot_simulated_interaction_scores(design_matrix, Tab, expl_var_ab, 2),
-  plot_simulated_loadings(Pa, expl_var_a, 1),
-  plot_simulated_loadings(Pa, expl_var_a, 2),
-  plot_simulated_loadings(Pab, expl_var_ab, 1),
-  plot_simulated_loadings(Pab, expl_var_ab, 2),
-  ncol = 4,
+plt_Ta_PC1_simulation <-  plot_simulated_time_scores(design$dummy_design_matrix, Ta, expl_var_a, 1, bquote("T"[A]))
+plt_Tab_PC1_simulation <- plot_simulated_interaction_scores(design$dummy_design_matrix, Tab, expl_var_ab, 1, bquote("T"[AB]))
+plt_Tab_PC2_simulation <- plot_simulated_interaction_scores(design$dummy_design_matrix, Tab, expl_var_ab, 2, bquote("T"[AB]))
+plt_Pa_PC1_simulation <-  plot_simulated_loadings(Pa, expl_var_a, 1, bquote("P"[A]))
+plt_Pab_PC1_simulation <- plot_simulated_loadings(Pab, expl_var_ab, 1, bquote("P"[AB]))
+plt_Pab_PC2_simulation <- plot_simulated_loadings(Pab, expl_var_ab, 2, bquote("P"[AB]))
+
+plt_combined_simulation <- ggarrange(
+  plt_Ta_PC1_simulation,
+  plt_Tab_PC1_simulation,
+  plt_Tab_PC2_simulation,
+  plt_Pa_PC1_simulation,
+  plt_Pab_PC1_simulation,
+  plt_Pab_PC2_simulation,
+  ncol = 3,
   nrow = 2,
   common.legend = TRUE,
-  labels = "AUTO",
-  label.y = 1.05,
-  label.x = .88
+  legend = "bottom"
 )
-ggsave(
-  filename = paste0("images/", outfile_prefix, "_simulation.png"),
-  width = 8,
-  height = 4
-)
+ggsave(filename = file.path(output_dir, "plt_combined_simulation.png"),plt_combined_simulation,width = 10,height = 6)
+ggsave(filename = file.path(output_dir, "plt_Ta_PC1_simulation.png"),plt_Ta_PC1_simulation ,width = 4,height = 4)
+ggsave(filename = file.path(output_dir, "plt_Tab_PC1_simulation.png"),plt_Tab_PC1_simulation ,width = 4,height = 4)
+ggsave(filename = file.path(output_dir, "plt_Tab_PC2_simulation.png"),plt_Tab_PC2_simulation ,width = 4,height = 4)
+ggsave(filename = file.path(output_dir, "plt_Pa_PC1_simulation.png"),plt_Pa_PC1_simulation ,width = 4,height = 4)
+ggsave(filename = file.path(output_dir, "plt_Pab_PC1_simulation.png"),plt_Pab_PC1_simulation,width = 4,height = 4)
+ggsave(filename = file.path(output_dir, "plt_Pab_PC2_simulation.png"),plt_Pab_PC2_simulation,width = 4,height = 4)
 ```
 
 
@@ -190,37 +192,33 @@ ggsave(
 Next, we will create balanced simulation matrices from the design info and the fixed effect components.
 ```{r Compose Matrices and Unbalance}
 # Compose (Effect) Matrices
-balanced_simulation_matrices <- compose_matrices(design_info,
+balanced_simulation_matrices <- compose_matrices(design,
                                                  function_seed=1,
                                                  mu=5,
-                                                 effects = c("time","interaction"),
                                                  scores_time = Ta,
                                                  scores_interaction = Tab,
                                                  loadings_time = Pa,
                                                  loadings_interaction = Pab,
-                                                 include_subject = TRUE,
                                                  subject_mu = 0,
                                                  subject_Sigma = .05)
 
 # Sample from distribution with certain mean
 balanced_response_matrix <- 
   generate_response_matrix(balanced_simulation_matrices$logYhat,
-                           type=design_info$family,
-                           prob_str_0 = design_info$prob_zero,
-                           sigma = design_info$sigma) 
+                           type=design$family,
+                           prob_str_0 = design$prob_zero,
+                           sigma = design$sigma) 
 
 # Generate unbalance in dataset and merge into one list
 unbalanced_simulation_matrices <- 
-  gen_sim_sub_matrices(design_info,
-                       design_matrix,
-                       balanced_response_matrix,
+  gen_sim_sub_matrices(design,
                        function_seed=1,
-                       balanced_simulation_matrices,
-                       fixed_model_parameter_matrix=X)
+                       balanced_response_matrix,
+                       balanced_simulation_matrices)
 
 # Modify Design list
-design_info$X <- unbalanced_simulation_matrices$X
-design_info$design <- unbalanced_simulation_matrices$design
+design$X <- unbalanced_simulation_matrices$X
+design$design <- unbalanced_simulation_matrices$design
 
 # Write matrices to xlsx
 write_xlsx(
@@ -246,8 +244,7 @@ gen_long_response_df(unbalanced_simulation_matrices) %>%
       FUN = function(x) x %>%
         ggplot(aes(x=count))+
         geom_histogram(bins=15)+
-        theme_classic(base_family="Times",
-                      base_size = 14)+
+        theme_classic(base_size = 14)+
         theme(axis.text.x = element_text(angle=45,
                                          hjust=1))+
         labs(x=element_blank(),
@@ -262,18 +259,13 @@ gen_long_response_df(unbalanced_simulation_matrices) %>%
   annotate_figure(
     bottom = text_grob(
       "zOTU Count",
-      family = "Times",
       size=20
     ),
     left = text_grob("Frequency (counts)",
                      size=20,
-                     family="Times",
                      rot=90))
   ggsave(
-    filename= paste0(
-      "images/", 
-      outfile_prefix,
-      "_zero-inflation_per_zOTU.png"),
+    filename= file.path(output_dir, "plt_zero_inflation_per_zOTU.png"),
     width = 6,
     height= 6)
 ```
@@ -285,17 +277,17 @@ gen_long_response_df(unbalanced_simulation_matrices) %>%
 # Fit GLMMs and Extract coefficients
 glmm_fit_results <-left_join(
   x = gen_long_response_df(unbalanced_simulation_matrices),
-  y = df.model_matrix,
+  y = design$dummy_model_matrix,
   by = c("timepoint", "treatment")) %>%
   fit_glmm(
     long_response_df = .,
-    dist_family = design_info$family,
+    dist_family = design$family,
     cores=ncores
   ) %>% 
   filter(!is.na(model)) %>%
   extr_glmm_coef(
     model_df = .,
-    family = design_info$family,
+    family = design$family,
     cores = ncores)
 ```
 
@@ -304,11 +296,11 @@ glmm_fit_results <-left_join(
 # Perform 7-fold Jackknife
 glmm_jackknife_models <- fit_jackknife_models(
   glmm_fit_results,
-  design_info,
+  design,
   cores = ncores)
 glmm_jackknife_results <- process_jackknife_models(
   glmm_jackknife_models,
-  design_info
+  design
 )
 ```
 
@@ -317,25 +309,48 @@ glmm_jackknife_results <- process_jackknife_models(
 # Plot Jackknife results
 ## Plot Time Effect
 ```{r}
-ggarrange(
-  plot_estimate_time_scores(glmm_jackknife_results$Ta, glmm_jackknife_results$perc_a, 1),
-  plot_estimate_time_scores(glmm_jackknife_results$Ta, glmm_jackknife_results$perc_a, 2),
-  plot_estimate_interaction_scores(glmm_jackknife_results$Tab, glmm_jackknife_results$perc_ab, 1),
-  plot_estimate_interaction_scores(glmm_jackknife_results$Tab, glmm_jackknife_results$perc_ab, 2),
-  plot_estimate_loadings(glmm_jackknife_results$Pa, glmm_jackknife_results$perc_a, 1),
-  plot_estimate_loadings(glmm_jackknife_results$Pa, glmm_jackknife_results$perc_a, 2),
-  plot_estimate_loadings(glmm_jackknife_results$Pab, glmm_jackknife_results$perc_ab, 1),
-  plot_estimate_loadings(glmm_jackknife_results$Pab, glmm_jackknife_results$perc_ab, 2),
-  ncol = 4,
+plt_Ta_PC1_estimate <-  plot_estimate_time_scores(glmm_jackknife_results$Ta, glmm_jackknife_results$perc_a, 1, bquote("T"[A]))
+plt_Tab_PC1_estimate <- plot_estimate_interaction_scores(glmm_jackknife_results$Tab, glmm_jackknife_results$perc_ab, 1, bquote("T"[AB]))
+plt_Tab_PC2_estimate <-  plot_estimate_interaction_scores(glmm_jackknife_results$Tab, glmm_jackknife_results$perc_ab, 2, bquote("T"[AB]))
+plt_Pa_PC1_estimate <-  plot_estimate_loadings(glmm_jackknife_results$Pa, glmm_jackknife_results$perc_a, 1, bquote("P"[A]))
+plt_Pab_PC1_estimate <- plot_estimate_loadings(glmm_jackknife_results$Pab, glmm_jackknife_results$perc_ab, 1, bquote("P"[AB]))
+plt_Pab_PC2_estimate <- plot_estimate_loadings(glmm_jackknife_results$Pab, glmm_jackknife_results$perc_ab, 2, bquote("P"[AB]))
+
+plt_combined_estimate <- ggarrange(
+  plt_Ta_PC1_estimate,
+  plt_Tab_PC1_estimate,
+  plt_Tab_PC2_estimate,
+  plt_Pa_PC1_estimate,
+  plt_Pab_PC1_estimate,
+  plt_Pab_PC2_estimate,
+  ncol = 3,
   nrow = 2,
   common.legend = TRUE,
-  labels = "AUTO",
-  label.y = 1.05,
-  label.x = .88
+  legend = "bottom"
 )
-ggsave(
-  filename = paste0("images/", outfile_prefix, "_estimate.png"),
-  width = 8,
-  height = 4
+ggsave(filename = file.path(output_dir, "plt_combined_estimate.png"),plt_combined_estimate,width = 10,height = 6)
+ggsave(filename = file.path(output_dir, "plt_Ta_PC1_estimate.png"),plt_Ta_PC1_estimate ,width = 4,height = 4)
+ggsave(filename = file.path(output_dir, "plt_Tab_PC1_estimate.png"),plt_Tab_PC1_estimate ,width = 4,height = 4)
+ggsave(filename = file.path(output_dir, "plt_Tab_PC2_estimate.png"),plt_Tab_PC2_estimate ,width = 4,height = 4)
+ggsave(filename = file.path(output_dir, "plt_Pa_PC1_estimate.png"),plt_Pa_PC1_estimate ,width = 4,height = 4)
+ggsave(filename = file.path(output_dir, "plt_Pab_PC1_estimate.png"),plt_Pab_PC1_estimate,width = 4,height = 4)
+ggsave(filename = file.path(output_dir, "plt_Pab_PC2_estimate.png"),plt_Pab_PC2_estimate,width = 4,height = 4)
+
+```
+
+# Save data to file
+```{r}
+spreadsheet_list <- list()
+spreadsheet_list$Pa <- Pa %>% as_tibble()
+spreadsheet_list$Ta <- Ta %>% as_tibble()
+spreadsheet_list$Pab <- Pab %>% as_tibble()
+spreadsheet_list$Tab <- Tab %>% as_tibble()
+spreadsheet_list$X <- design$X %>% as_tibble()
+spreadsheet_list$design_matrix <- design$design
+
+writexl::write_xlsx(
+  x = spreadsheet_list,
+  path = file.path(output_dir, "simulation_settings.xlsx")
 )
 ```
+
